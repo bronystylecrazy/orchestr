@@ -15,15 +15,16 @@ Pull-based dispatch: pick → claim → work → hand off. One invocation works 
 
 ## 2. Pick
 
-Work the queues in this order. Seats below frontier tier start at queue 3.
+Work the queues in this order. Standard seats start at queue 1; mechanical
+seats start at queue 4.
 
-1. **(frontier and standard seats) Reviews** — open MRs carrying a `review:*` label with no approval yet: `glab mr list --label review:frontier -F json` then `--label review:light`. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`. Found one → jump to **Reviewing** below.
-2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -F json`. Found one → **Reviewing**.
-3. **(frontier seats) Triage** — `glab issue list --label needs-triage -F json`. Found issues → invoke orchestr:route on each, then restart at queue 1.
+1. **(frontier and standard seats) Reviews** — open MRs carrying a `review:*` label with no approval yet: `glab mr list --label review:frontier -O json` then `--label review:light`. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`. Found one → jump to **Reviewing** below.
+2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -O json`. Found one → **Reviewing**.
+3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Found issues → invoke orchestr:route on each, then restart at queue 1.
 4. **Implementation** — one query per tier (label filters AND together), from your cap downward:
 
    ```bash
-   glab issue list --label ready-for-agent --label tier:mechanical -F json
+   glab issue list --label ready-for-agent --label tier:mechanical -O json
    ```
 
    Skip any candidate that has an assignee, or whose description's `Blocked by: #N` line names an issue still open (check each with `glab issue view N`). Take the first survivor.
