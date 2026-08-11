@@ -18,8 +18,8 @@ Pull-based dispatch: pick → claim → work → hand off. One invocation works 
 Work the queues in this order. Standard seats start at queue 1; mechanical
 seats start at queue 4.
 
-1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -O json` then `--label review:light`. Any MR these queries return IS your work item: take the first and jump to **Reviewing** below. Only an empty result moves you to the next queue — the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
-2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -O json`. Found one → **Reviewing**.
+1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -F json` then `--label review:light`. Any MR these queries return IS your work item: take the first and jump to **Reviewing** below. Only an empty result moves you to the next queue — the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
+2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -F json`. Found one → **Reviewing**.
 3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Found issues → invoke orchestr:route on each, then restart at queue 1.
 4. **Implementation** — one query per tier (label filters AND together), from your cap downward:
 
@@ -32,6 +32,8 @@ seats start at queue 4.
    Seat economy: a standard seat takes a `tier:mechanical` ticket only when it has sat unclaimed for over 24 hours (check `created_at`) — fresher mechanical work belongs to the mechanical seats.
 
 All queues empty → report "queue empty for <seat>" and stop. That is a valid completion.
+
+glab quirk (do not "fix" for uniformity): `glab mr list` outputs JSON via `-F json`; `glab issue list` via `-O json`. Each command above already carries its correct flag.
 
 ## 3. Claim (collision-safe)
 
