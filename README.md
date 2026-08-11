@@ -38,3 +38,12 @@ pattern are the only surfaces it depends on.
    machine's global glab auth:
    `export GITLAB_TOKEN=<bot token> GITLAB_HOST=<your gitlab host>`
 3. Idle loop, once trusted: `/loop /orchestr:next-ticket`.
+
+## Shared clone (multiple seats, one machine, one directory)
+
+Seats may share a single repo clone: queries and doc reads run from it
+concurrently, and each ticket is implemented in its own `git worktree`
+(next-ticket step 4). The shared clone is a **hub, parked on the default
+branch** — build, test, and branch-switch only inside your worktree, never in
+the shared root. Identity stays per-session: each seat's `GITLAB_TOKEN` lives
+in its own profile environment, never in a shared shell rc.
