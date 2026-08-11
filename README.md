@@ -36,5 +36,5 @@ pattern are the only surfaces it depends on.
 1. Install this plugin (same as any Claude Code plugin).
 2. Set that seat's bot token in the profile environment — never rewrite the
    machine's global glab auth:
-   `export GITLAB_TOKEN=<bot token> GITLAB_HOST=gitlab.connectedtech.co.th`
+   `export GITLAB_TOKEN=<bot token> GITLAB_HOST=<your gitlab host>`
 3. Idle loop, once trusted: `/loop /orchestr:next-ticket`.

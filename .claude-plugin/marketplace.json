@@ -1,0 +1,13 @@
+{
+  "name": "orchestr",
+  "owner": {
+    "name": "Sirawit Pratoomsuwan"
+  },
+  "plugins": [
+    {
+      "name": "orchestr",
+      "source": "./",
+      "description": "Route issue-tracker work to the right model tier: triage-time tier/review labels, idle-seat dispatch with a collision-safe claim protocol, and per-project bootstrap. Layers on mattpocock-skills."
+    }
+  ]
+}
