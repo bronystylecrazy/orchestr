@@ -29,6 +29,8 @@ seats start at queue 4.
 
    Skip any candidate that has an assignee, or whose description's `Blocked by: #N` line names an issue still open (check each with `glab issue view N`). Take the first survivor.
 
+   Seat economy: a standard seat takes a `tier:mechanical` ticket only when it has sat unclaimed for over 24 hours (check `created_at`) — fresher mechanical work belongs to the mechanical seats.
+
 All queues empty → report "queue empty for <seat>" and stop. That is a valid completion.
 
 ## 3. Claim (collision-safe)
