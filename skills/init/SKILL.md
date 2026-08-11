@@ -22,11 +22,24 @@ glab label create --name "needs-frontier-review" --color "#D93F0B" --description
 
 The five mattpocock triage labels are prerequisites (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`); create any of those that are missing too, with the descriptions from the repo's `docs/agents/triage-labels.md`.
 
-## 2. Repo doc
+## 2. Tracker doc check
+
+The repo's `docs/agents/issue-tracker.md` (mattpocock layer) may carry a stale
+glab flag that breaks mechanical seats:
+
+```bash
+grep -n -- '-F json' docs/agents/issue-tracker.md
+```
+
+Any hits → change them to `-O json` (glab 1.111+'s JSON output flag;
+`-F/--output-format` only accepts `details|ids|urls`) and land the fix through
+the repo's MR conventions — same MR as step 3 is fine.
+
+## 3. Repo doc
 
 Copy `templates/model-routing.md` from this plugin's root into the repo as `docs/agents/model-routing.md`, then fill in the per-repo data: the tier→model table and the **Seats** table (only bot users that actually have Developer access to this project). Land it through the repo's normal MR conventions.
 
-## 3. Pointer
+## 4. Pointer
 
 Add to the repo CLAUDE.md's agent-skills section:
 
@@ -40,4 +53,4 @@ Issues route to model seats by tier/review labels via the orchestr plugin
 
 ## Done when
 
-All eleven labels exist on the project, `docs/agents/model-routing.md` is committed, and CLAUDE.md points at it.
+All eleven labels exist on the project, `issue-tracker.md` has no `-F json` hits, `docs/agents/model-routing.md` is committed, and CLAUDE.md points at it.
