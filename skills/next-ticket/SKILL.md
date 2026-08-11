@@ -18,7 +18,7 @@ Pull-based dispatch: pick → claim → work → hand off. One invocation works 
 Work the queues in this order. Standard seats start at queue 1; mechanical
 seats start at queue 4.
 
-1. **(frontier and standard seats) Reviews** — open MRs carrying a `review:*` label with no approval yet: `glab mr list --label review:frontier -O json` then `--label review:light`. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`. Found one → jump to **Reviewing** below.
+1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -O json` then `--label review:light`. Any MR these queries return IS your work item: take the first and jump to **Reviewing** below. Only an empty result moves you to the next queue — the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
 2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -O json`. Found one → **Reviewing**.
 3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Found issues → invoke orchestr:route on each, then restart at queue 1.
 4. **Implementation** — one query per tier (label filters AND together), from your cap downward:
@@ -44,6 +44,7 @@ Re-read `glab issue view <n> --comments`. If a claim comment from another user p
 
 ## 4. Work the ticket
 
+- First, verify the premise: check the ticket's acceptance criteria against current `main`. If they already hold — the work landed some other way — post the evidence as a comment, unassign yourself, and swap `ready-for-agent` for `needs-triage`; triage confirms and closes, you don't.
 - Isolate in a worktree (superpowers:using-git-worktrees).
 - The ticket's brief is the spec. Implement with mattpocock-skills:tdd when the bar is expressible as tests.
 - Loop until every command in the ticket's `## Verification` section passes **verbatim** — green means actual command output you ran, never expectation.
