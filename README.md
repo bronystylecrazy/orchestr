@@ -102,6 +102,7 @@ lists that spec tickets produce, and holding or overriding anything
 | `/orchestr:init` | Onboard a project: labels + `docs/agents/model-routing.md` |
 | `/orchestr:route` | Triage-time: assign tier/review labels + executable brief |
 | `/orchestr:next-ticket` | Idle seat: pull and work the next item |
+| `/orchestr:stats` | Read-only scorecard: seat metrics, queue health, stuck items |
 
 ## Seat setup (per machine/account)
 
