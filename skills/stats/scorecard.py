@@ -70,7 +70,7 @@ def main():
     spend_audit = []                   # /spend values far from server-timestamp truth
     spend_re = re.compile(r"(added|subtracted) (.+?) of time spent")
     dur_re = re.compile(r"(\d+)([dhm])")
-    claim_re = re.compile(r"(claim|review-claim|rework-claim):")
+    claim_re = re.compile(r"(claim|peer-claim|review-claim|rework-claim):")
 
     def audit_spends(ref, notes):
         claims = [n for n in notes if not n.get("system") and claim_re.match(n["body"])]
