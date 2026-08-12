@@ -7,7 +7,7 @@
 #   bot-user  GitLab bot identity; its token line must exist in ~/.config/orchestr/tokens
 #   tier      frontier | standard | mechanical  (selects the has_work pre-filter)
 #   --once      run a single gated tick, then exit (testing / cron mode)
-#   --interval  poll seconds (default 60)
+#   --interval  poll seconds (default 10; events-gated — a full queue check runs every 6th tick)
 #   --model     pin the session model (e.g. sonnet) instead of the profile default
 #   --safe      DISABLE the default --dangerously-skip-permissions and rely on the
 #               profile's settings.json permissions instead. NOTE (verified): deny
@@ -27,7 +27,7 @@
 set -u
 CFG="$HOME/.config/orchestr"
 PROFILES=$(echo "${1:?profile}" | tr ',' ' '); BOT="${2:?bot-user}"; TIER="${3:?tier}"; shift 3
-ONCE=0; INTERVAL=60; DANGEROUS="--dangerously-skip-permissions"; MODEL=""
+ONCE=0; INTERVAL=10; DANGEROUS="--dangerously-skip-permissions"; MODEL=""
 while [ $# -gt 0 ]; do case "$1" in
   --once) ONCE=1 ;; --interval) INTERVAL="$2"; shift ;;
   --model) MODEL="$2"; shift ;;
@@ -40,7 +40,22 @@ GITLAB_TOKEN=$(awk -v b="$BOT" '$1==b{print $2}' "$CFG/tokens")
 [ -n "$GITLAB_TOKEN" ] || { echo "no token for $BOT in $CFG/tokens"; exit 1; }
 [ -s "$CFG/projects" ] || { echo "missing $CFG/projects"; exit 1; }
 export GITLAB_HOST GITLAB_TOKEN
-mkdir -p "$CFG/ledger" "$CFG/logs" "$CFG/cooldown"
+mkdir -p "$CFG/ledger" "$CFG/logs" "$CFG/cooldown" "$CFG/events-cursor"
+
+# events pre-gate: one API call answers "did anything happen since last look?"
+# Label-only edits emit no event (route posts a 'routed:' note to compensate),
+# so a full queue check still runs every 6th tick as the floor.
+fresh_events() {  # $1=project dir; cursor keyed per bot+project
+  key="$BOT-$(basename "$1")"
+  latest=$(cd "$1" && glab api "projects/:id/events?per_page=1" 2>/dev/null | \
+    python3 -c "import json,sys
+try: print(json.load(sys.stdin)[0]['created_at'])
+except Exception: print('')")
+  [ -n "$latest" ] || return 0   # API hiccup -> fail open to a full check
+  cur=$(cat "$CFG/events-cursor/$key" 2>/dev/null || echo "")
+  printf '%s' "$latest" > "$CFG/events-cursor/$key"
+  [ "$latest" != "$cur" ]
+}
 LOG="$CFG/logs/$BOT.log"
 log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG"; }
 
@@ -128,8 +143,11 @@ log "seat-loop (orchestr $VERSION) bot=$BOT tier=$TIER profiles=[$PROFILES] proj
 tick=0
 while :; do
   worked=0
+  full=0
+  { [ "$tick" -eq 0 ] || [ $(( tick % 6 )) -eq 0 ]; } && full=1   # startup + every ~60s: full check regardless of events
   while IFS= read -r proj; do
     [ -d "$proj" ] || continue
+    if [ "$full" -eq 0 ] && ! fresh_events "$proj"; then continue; fi
     if ( cd "$proj" && has_work ); then
       prof=$(pick_profile) || { log "all profiles cooling; skipping tick"; break; }
       log "work detected in $proj -> session as $BOT via profile $prof"
@@ -140,7 +158,7 @@ while :; do
   done < "$CFG/projects"
   [ "$ONCE" -eq 1 ] && { log "once mode: exiting (worked=$worked)"; exit 0; }
   tick=$((tick + 1))
-  [ "$tick" -eq 1 ] && [ "$worked" -eq 0 ] && log "idle — queues empty; polling every ~${INTERVAL}s, heartbeat every ~15m"
-  [ $(( tick % 15 )) -eq 0 ] && log "heartbeat: alive, tick $tick, idle"
-  sleep $(( INTERVAL + $(od -An -N1 -tu1 /dev/urandom | tr -d ' ') % 30 ))
+  [ "$tick" -eq 1 ] && [ "$worked" -eq 0 ] && log "idle — queues empty; events-gated ${INTERVAL}s polls, full check ~60s, heartbeat ~15m"
+  [ $(( tick % 90 )) -eq 0 ] && log "heartbeat: alive, tick $tick, idle"
+  sleep $(( INTERVAL + $(od -An -N1 -tu1 /dev/urandom | tr -d ' ') % 5 ))
 done

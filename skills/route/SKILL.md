@@ -46,6 +46,10 @@ Rewrite the issue description so a seat can execute it with no other context:
 
 If the ticket depends on another open issue, put `Blocked by: #N` as the first line (this instance is GitLab CE — there are no native blocking links).
 
+## Announce the routing
+
+Finish every routing with a note — `glab issue note <n> --message "routed: <tier>, <review label>"`. This is not ceremony: label edits emit no GitLab event, and the seats' event-gated pollers wake on this note. It doubles as the routing audit line.
+
 ## Estimate
 
 After routing, post `/estimate <n>m` **as its own note** (quick actions mixed with text post as literal text). Seed from the scorecard's median cycle for the tier when you have it; defaults otherwise: mechanical 20m, standard 60m, frontier 2h. Override only when the brief is unusual.
