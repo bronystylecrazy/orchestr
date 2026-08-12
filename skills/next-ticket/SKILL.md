@@ -18,7 +18,7 @@ Pull-based dispatch: pick → claim → work → hand off. One invocation works 
 Every seat checks queue 0 first. Then standard and frontier seats continue at
 queue 1; mechanical seats skip to queue 4.
 
-0. **(all seats) Rework — your own MRs come before any new work** — `glab mr list --label changes-requested -F json`, keep only MRs authored by your bot user. A reviewer has left findings on your MR: check out its branch, address every finding (reply on the MR to each), push, then remove the label (`glab mr update <iid> --unlabel changes-requested`) to hand it back to the review queue. That completes this invocation.
+0. **(all seats) Rework — your own MRs come before any new work** — `glab mr list --label changes-requested -F json`, keep only MRs authored by your bot user. A reviewer has left findings on your MR: create a fresh worktree from the remote branch (`git worktree add <path> origin/<branch>` — the original worktree is gone by design), address every finding (reply on the MR to each), push, remove the label (`glab mr update <iid> --unlabel changes-requested`) to hand it back to the review queue, then remove the worktree again. That completes this invocation.
 1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -F json` then `--label review:light`. Skip any MR labeled `changes-requested` (it is with its author), and any MR whose comments hold a `review-claim:` from another instance less than 24 hours old with no outcome yet. The first survivor IS your work item — read `REVIEWING.md` beside this skill and follow it. Only an empty result moves you to the next queue; the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
 2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -F json`. Found one → `REVIEWING.md`.
 3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Fresh issues → invoke orchestr:route on each; tickets holding a completed, peer-confirmed report → spot-check it, make the decision it feeds, and close. Then restart at queue 1.
@@ -80,7 +80,8 @@ Re-read `glab issue view <n> --comments`. If a claim comment with any instance i
 
 - Tick the acceptance-criteria checkboxes you actually verified (`- [x]` in the issue description) — a visual mirror of `## Verified`, nothing more; review still gates.
 - Record your clock: `glab issue note <n> --message "/spend <minutes>m"` **as its own note** (quick actions mixed with text post as literal text), minutes = now minus your claim timestamp. Peer-checkers do the same when finishing a check.
-- Leave the MR open — **the reviewer merges**. Your ticket is finished when the MR is open, labeled, and the report is posted.
+- Clean your bench: the branch is pushed, so remove your worktree (`git worktree remove <path>`) and delete the local branch copy (`git branch -d <branch>` from the hub clone). Rework re-creates a worktree from the remote branch.
+- Leave the MR open — **the reviewer merges** (the project deletes the remote source branch on merge). Your ticket is finished when the MR is open, labeled, and the report is posted.
 
 ## Reviewing
 
