@@ -1,16 +1,42 @@
 #!/usr/bin/env python3
-"""Render a claude stream-json session live; save the final result event to argv[1]."""
+"""Render a claude stream-json session live; save the final result event to argv[1].
+
+Assistant text blocks are complete markdown chunks — rendered with rich when
+available (headers, bold, tables, code fences), plain-clipped otherwise.
+"""
 import json
+import shutil
 import sys
 
 outpath = sys.argv[1]
 tty = sys.stdout.isatty()
 DIM, CYAN, GREEN, RESET = ("\033[2m", "\033[36m", "\033[32m", "\033[0m") if tty else ("",) * 4
 
+console = None
+if tty:
+    try:
+        from rich.console import Console
+        from rich.markdown import Markdown
+        from rich.padding import Padding
+        console = Console(width=min(shutil.get_terminal_size().columns, 100), highlight=False)
+    except ImportError:
+        pass
+
 
 def clip(s, n=300):
     s = s.rstrip()
     return s if len(s) <= n else s[:n].rsplit(" ", 1)[0] + " …"
+
+
+def render_text(text):
+    if not text.strip():
+        return
+    if console:
+        console.print(Padding(Markdown(text), (0, 0, 0, 4)))
+    else:
+        for chunk in text.splitlines():
+            if chunk.strip():
+                print(f"  {DIM}»{RESET} {clip(chunk)}", flush=True)
 
 
 for line in sys.stdin:
@@ -25,9 +51,7 @@ for line in sys.stdin:
     if t == "assistant":
         for b in (ev.get("message") or {}).get("content", []):
             if b.get("type") == "text":
-                for chunk in b.get("text", "").splitlines():
-                    if chunk.strip():
-                        print(f"  {DIM}»{RESET} {clip(chunk)}", flush=True)
+                render_text(b.get("text", ""))
             elif b.get("type") == "tool_use":
                 inp = b.get("input", {}) or {}
                 brief = inp.get("command") or inp.get("file_path") or inp.get("description") or ""
