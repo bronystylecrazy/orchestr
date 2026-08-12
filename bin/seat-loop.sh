@@ -9,6 +9,7 @@
 #   --once      run a single gated tick, then exit (testing / cron mode)
 #   --watch/--no-watch  live-render session activity (default: on when stdout is a TTY)
 #   --interval  poll seconds (default 10; events-gated — a full queue check runs every 6th tick)
+#   --directed  concierge mode: wake ONLY for human-assigned work (no pull queues)
 #   --no-update disable post-session self-update (plugin caches + git pull)
 #   --model     pin the session model (e.g. sonnet) instead of the profile default
 #   --safe      DISABLE the default --dangerously-skip-permissions and rely on the
@@ -38,10 +39,12 @@ while [ $# -gt 0 ]; do case "$1" in
   --model) MODEL="$2"; shift ;;
   --watch) WATCH=1 ;; --no-watch) WATCH=0 ;;
   --safe) DANGEROUS="" ;;
+  --directed) DIRECTED=1 ;;
   --no-update) AUTOUPDATE=0 ;;
   --dangerous) DANGEROUS="--dangerously-skip-permissions" ;;
 esac; shift; done
-: "${AUTOUPDATE:=1}"
+: "${AUTOUPDATE:=1}"; : "${DIRECTED:=0}"
+PROMPT="/orchestr:next-ticket"; [ "$DIRECTED" -eq 1 ] && PROMPT="/orchestr:next-ticket directed-only"
 
 GITLAB_HOST=$(cat "$CFG/gitlab-host" 2>/dev/null) || { echo "missing $CFG/gitlab-host"; exit 1; }
 GITLAB_TOKEN=$(awk -v b="$BOT" '$1==b{print $2}' "$CFG/tokens")
@@ -87,6 +90,7 @@ import json,sys
 try: mrs=json.load(sys.stdin)
 except Exception: sys.exit(1)
 sys.exit(0 if any('changes-requested' not in m.get('labels',[]) for m in mrs) else 1)" && return 0
+  [ "$DIRECTED" -eq 1 ] && return 1   # directed-only seats never wake for pull queues
   case "$TIER" in
     mechanical)
       glab issue list --label needs-peer-check -O json 2>/dev/null | unassigned && return 0
@@ -147,11 +151,11 @@ run_session() {  # $1=profile $2=project-dir
   out=$(mktemp); err=$(mktemp)
   if [ "$WATCH" -eq 1 ]; then
     ( cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
-        claude -p "/orchestr:next-ticket" --output-format stream-json --verbose $DANGEROUS ${MODEL:+--model "$MODEL"} 2>"$err" \
+        claude -p "$PROMPT" --output-format stream-json --verbose $DANGEROUS ${MODEL:+--model "$MODEL"} 2>"$err" \
       | python3 "$(dirname "$0")/session-render.py" "$out" )
   else
     ( cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
-        claude -p "/orchestr:next-ticket" --output-format json $DANGEROUS ${MODEL:+--model "$MODEL"} >"$out" 2>"$err" )
+        claude -p "$PROMPT" --output-format json $DANGEROUS ${MODEL:+--model "$MODEL"} >"$out" 2>"$err" )
   fi
   rc=$?
   python3 - "$out" "$1" "$BOT" "$2" >>"$CFG/ledger/$1.jsonl" <<'PY'

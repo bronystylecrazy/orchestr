@@ -15,6 +15,8 @@ Pull-based dispatch: pick → claim → work → hand off. One invocation works 
 
 ## 2. Pick
 
+**`directed-only` mode** (the skill was invoked with that argument): work **only** queues 0 and 0.5 — your own `changes-requested` MRs and work a human assigned to you by name. If both are empty, stop with "no directed work". Skip everything below.
+
 Every seat checks queue 0 first. Then standard and frontier seats continue at
 queue 1; mechanical seats skip to queue 4.
 
