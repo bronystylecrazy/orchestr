@@ -67,6 +67,24 @@ def main():
     cycle = defaultdict(list)          # claim -> close, minutes
     spent = defaultdict(int)           # /spend seconds per producing seat
     overruns = []                      # tickets where spent > 2x estimate
+    spend_audit = []                   # /spend values far from server-timestamp truth
+    spend_re = re.compile(r"(added|subtracted) (.+?) of time spent")
+    dur_re = re.compile(r"(\d+)([dhm])")
+    claim_re = re.compile(r"(claim|review-claim|rework-claim):")
+
+    def audit_spends(ref, notes):
+        claims = [n for n in notes if not n.get("system") and claim_re.match(n["body"])]
+        for n in notes:
+            sm = n.get("system") and spend_re.match(n["body"])
+            if not sm or sm.group(1) != "added":
+                continue
+            mins = sum(int(v) * {"d": 480, "h": 60, "m": 1}[u] for v, u in dur_re.findall(sm.group(2)))
+            prior = [c for c in claims if ts(c["created_at"]) < ts(n["created_at"])]
+            if not prior:
+                continue
+            truth = (ts(n["created_at"]) - ts(prior[-1]["created_at"])).total_seconds() / 60
+            if mins > max(5, truth * 2) or mins < truth * 0.3:
+                spend_audit.append(f"{ref} {n['author']['username']} spent {mins}m vs ~{truth:.0f}m real")
     confirmed = defaultdict(int)       # peer-check confirmations per PRODUCER
     refuted = defaultdict(int)         # peer-check refutations per PRODUCER
     checks_done = defaultdict(int)     # peer-checks performed per CHECKER
@@ -74,6 +92,7 @@ def main():
 
     for i in issues:
         notes = api(f"projects/:id/issues/{i['iid']}/notes?per_page=100&sort=asc") or []
+        audit_spends(f"#{i['iid']}", notes)
         claims = [n for n in notes if n["body"].startswith("claim:")]
         producer = seat_of(claims[-1]["author"]["username"]) if claims else None
         if i["state"] == "closed" and producer:
@@ -103,8 +122,6 @@ def main():
 
     rework = defaultdict(list)         # changes-requested rounds per MR author
     merges = defaultdict(int)          # verified merges per reviewer seat
-    spend_re = re.compile(r"(added|subtracted) (.+?) of time spent")
-    dur_re = re.compile(r"(\d+)([dhm])")
     for m in mrs:
         author = seat_of(m["author"]["username"])
         events = api(f"projects/:id/merge_requests/{m['iid']}/resource_label_events?per_page=100") or []
@@ -114,7 +131,9 @@ def main():
         if m["state"] == "merged" and m.get("merge_user"):
             merges[seat_of(m["merge_user"]["username"])] += 1
         # MR time: /spend quick-actions leave system notes — attribute per note author
-        for n in (api(f"projects/:id/merge_requests/{m['iid']}/notes?per_page=100") or []):
+        mr_notes = api(f"projects/:id/merge_requests/{m['iid']}/notes?per_page=100&sort=asc") or []
+        audit_spends(f"!{m['iid']}", mr_notes)
+        for n in mr_notes:
             if not n.get("system"):
                 continue
             sm = spend_re.match(n["body"])
@@ -215,6 +234,7 @@ def main():
         print(f"{'total':<24}{tot['n']:>6}{'$%.2f' % tot['cost']:>9}   (API-equivalent; subscription seats bill by plan)")
 
     flags.extend(f"OVERRUN {o}" for o in overruns)
+    flags.extend(f"SPEND? {s}" for s in spend_audit)
     print("FLAGS: " + (" · ".join(flags) if flags else "none"))
 
 

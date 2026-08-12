@@ -81,7 +81,7 @@ Abandoned claims: a claimed ticket whose newest note is over 24 hours old is a d
 ```
 
 - Tick the acceptance-criteria checkboxes you actually verified (`- [x]` in the issue description) — a visual mirror of `## Verified`, nothing more; review still gates.
-- Record your clock: `glab issue note <n> --message "/spend <minutes>m"` **as its own note** (quick actions mixed with text post as literal text), minutes = now minus your claim timestamp. Peer-checkers do the same when finishing a check.
+- Record your clock: `glab issue note <n> --message "/spend <minutes>m"` **as its own note** (quick actions mixed with text post as literal text). Minutes = `date -u +%s` now minus the timestamp **you wrote inside this session's claim comment** — run the arithmetic, never estimate; the stats audit compares your value against the server's note timestamps and flags invented numbers. Peer-checkers do the same when finishing a check.
 - Clean your bench: the branch is pushed, so remove your worktree (`git worktree remove <path>`) and delete the local branch copy (`git branch -d <branch>` from the hub clone). Rework re-creates a worktree from the remote branch.
 - Leave the MR open — **the reviewer merges** (the project deletes the remote source branch on merge). Your ticket is finished when the MR is open, labeled, and the report is posted.
 
