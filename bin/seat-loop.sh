@@ -82,6 +82,7 @@ import json, sys, datetime
 sigil, mode = sys.argv[1], sys.argv[2]
 arg = sys.argv[3] if len(sys.argv) > 3 else ""
 minage = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else 0
+blockers = set((sys.argv[5] if len(sys.argv) > 5 else "").split(",")) - {""}
 now = datetime.datetime.now(datetime.timezone.utc)
 try: items = json.load(sys.stdin)
 except Exception: sys.exit(1)
@@ -94,6 +95,10 @@ for i in items:
     if mode == "unassigned" and i.get("assignees"): continue
     if mode == "author" and (i.get("author") or {}).get("username") != arg: continue
     if mode == "notlabel" and arg in (i.get("labels") or []): continue
+    if blockers:                                                              # "Blocked by: #N" naming an OPEN issue
+        import re
+        refs = re.findall(r"[Bb]locked by:?\s*(#\d[\d,\s#]*)", i.get("description") or "")
+        if any(n in blockers for n in re.findall(r"\d+", " ".join(refs))): continue
     if mode == "reviewable":
         if (i.get("author") or {}).get("username") == arg: continue           # never your own bot user
         if "changes-requested" in (i.get("labels") or []): continue           # sitting with its author
@@ -101,10 +106,16 @@ for i in items:
         if revs and arg not in revs: continue                                 # claimed or directed elsewhere
     print(sigil + str(i["iid"]) + " " + (i.get("title") or "")[:58])
     sys.exit(0)
-sys.exit(1)' "$1" "$2" "${3:-}" "${4:-}"
+sys.exit(1)' "$1" "$2" "${3:-}" "${4:-}" "${OPEN_IIDS:-}"
 }
 
 has_work() {  # echoes "<queue> <ref> <title>" when work exists (empty output = idle)
+  # open issue iids — pick() uses these to skip tickets whose "Blocked by: #N" is still open
+  OPEN_IIDS=$(glab issue list -O json 2>/dev/null | python3 -c "
+import json,sys
+try: print(','.join(str(i['iid']) for i in json.load(sys.stdin)))
+except Exception: print('')")
+  export OPEN_IIDS
   _f=$(glab mr list --label changes-requested -F json 2>/dev/null | pick '!' author "$BOT") && { echo "rework $_f"; return 0; }
   # directed work: human assigned this bot (label still on = not yet claimed)
   _f=$(glab issue list --assignee "$BOT" --label ready-for-agent -O json 2>/dev/null | pick '#' any) && { echo "directed $_f"; return 0; }
@@ -177,6 +188,11 @@ print(json.dumps({
     "is_error": d.get("is_error", True),
     "result_head": (d.get("result") or "")[:160]}))
 PY
+  # session woke but did nothing? record the refusal so we stop waking on that item
+  if grep -qiE "queue empty|no directed work|nothing (for me|to work)" "$out" 2>/dev/null; then
+    _k=$(printf %s "$3" | cut -d' ' -f1,2)
+    [ -n "$_k" ] && { echo "$(date +%s) $_k" >> "$CFG/refused-$BOT.list"; log "no-op session on [$_k] -> muted for 1h (gate/skill disagreement)"; }
+  fi
   # failure detection -> cool this profile so the next tick fails over
   if grep -qiE "oauth|authenticate|please run /login|login required" "$out" "$err" 2>/dev/null; then
     echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
@@ -203,6 +219,16 @@ while :; do
     [ -d "$proj" ] || continue
     if [ "$full" -eq 0 ] && ! fresh_events "$proj"; then continue; fi
     found=$(cd "$proj" && has_work)
+    # refusal memo: a session that woke for this exact item and did nothing means the
+    # gate and the skill disagree. Ignore that item for an hour instead of burning a
+    # session every tick (any future gate/skill mismatch costs one session, not many).
+    if [ -n "$found" ]; then
+      _key=$(printf %s "$found" | cut -d' ' -f1,2)
+      if grep -qF "$_key" "$CFG/refused-$BOT.list" 2>/dev/null; then
+        _fresh=$(awk -v k="$_key" -v now="$(date +%s)" '$0 ~ k && (now - $1) < 3600 {print "y"; exit}' "$CFG/refused-$BOT.list")
+        [ "$_fresh" = "y" ] && found=""
+      fi
+    fi
     if [ -n "$found" ]; then
       for _try in $PROFILES; do
         prof=$(pick_profile) || { log "all profiles cooling; skipping tick"; break; }
