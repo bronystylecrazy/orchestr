@@ -153,8 +153,15 @@ def main():
             flags.append(f"#{i['iid']} needs-peer-check stuck {age_h(i['updated_at'], now):.0f}h")
         if has(i, "ready-for-agent") and not i["assignees"] and age_h(i["created_at"], now) > 48:
             flags.append(f"#{i['iid']} ready untouched {age_h(i['created_at'], now) / 24:.0f}d")
-        if i["assignees"] and has(i, "ready-for-agent") and age_h(i["updated_at"], now) > 24:
-            flags.append(f"#{i['iid']} claimed but quiet {age_h(i['updated_at'], now):.0f}h")
+        if i["assignees"] and has(i, "ready-for-agent"):
+            # quiet = no notes since the claim; updated_at lies (any label touch resets it)
+            inotes = api(f"projects/:id/issues/{i['iid']}/notes?per_page=100&sort=asc") or []
+            claim_times = [ts(n["created_at"]) for n in inotes if n["body"].startswith("claim:")]
+            if claim_times:
+                last_note = max(ts(n["created_at"]) for n in inotes)
+                quiet_h = (now - max(claim_times[-1], last_note)).total_seconds() / 3600
+                if quiet_h > 24:
+                    flags.append(f"#{i['iid']} claimed but quiet {quiet_h:.0f}h")
     print("FLAGS: " + (" · ".join(flags) if flags else "none"))
 
 
