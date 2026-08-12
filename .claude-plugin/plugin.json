@@ -1,6 +1,6 @@
 {
   "name": "orchestr",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "Route issue-tracker work to the right model tier: triage-time tier/review labels, idle-seat dispatch with a collision-safe claim protocol, and per-project bootstrap. Layers on mattpocock-skills.",
   "author": {
     "name": "Sirawit Pratoomsuwan"
