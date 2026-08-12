@@ -28,8 +28,20 @@
 #   ~/.config/orchestr/cooldown/<profile>       epoch-until file when over limit
 
 set -u
+# Run from an immutable snapshot. sh reads a script by byte offset, so editing this
+# file in place while it runs makes forked subshells resume in the NEW bytes and fall
+# into the main loop — that is where duplicate runners come from. The snapshot makes
+# in-place edits harmless; updates arrive via the mtime check on the real file below.
+if [ "${ORCHESTR_SNAP:-0}" != "1" ]; then
+  ORCHESTR_SRC="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  _snap=$(mktemp "${TMPDIR:-/tmp}/seat-loop.XXXXXX") || exit 1
+  cat "$ORCHESTR_SRC" > "$_snap"
+  find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'seat-loop.*' -mmin +180 -delete 2>/dev/null
+  export ORCHESTR_SRC; ORCHESTR_SNAP=1 exec /bin/sh "$_snap" "$@"
+fi
+
 CFG="$HOME/.config/orchestr"
-SELF="$0"; ORIG_ARGS="$*"
+SELF="${ORCHESTR_SRC:-$0}"; SRCDIR="$(dirname "$SELF")"; ORIG_ARGS="$*"
 SELF_STAMP=$(stat -f %m "$SELF" 2>/dev/null || stat -c %Y "$SELF" 2>/dev/null || echo 0)
 PROFILES=$(echo "${1:?profile}" | tr ',' ' '); BOT="${2:?bot-user}"; TIER="${3:?tier}"; shift 3
 ONCE=0; INTERVAL=10; DANGEROUS="--dangerously-skip-permissions"; MODEL=""
@@ -150,7 +162,7 @@ self_update() {  # post-session: refresh plugin caches + own repo; mtime restart
   for p in $PROFILES; do
     CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$p" claude plugin update orchestr@orchestr >/dev/null 2>&1
   done
-  repo_root=$(cd "$(dirname "$SELF")/.." && pwd)
+  repo_root=$(cd "$SRCDIR/.." && pwd)
   [ -d "$repo_root/.git" ] && git -C "$repo_root" pull -q --ff-only 2>/dev/null
   return 0
 }
@@ -169,7 +181,7 @@ run_session() {  # $1=profile $2=project-dir $3=detected-work description
   if [ "$WATCH" -eq 1 ]; then
     ( cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
         claude -p "$PROMPT" --output-format stream-json --verbose $DANGEROUS ${MODEL:+--model "$MODEL"} 2>"$err" \
-      | python3 "$(dirname "$0")/session-render.py" "$out" )
+      | python3 "$SRCDIR/session-render.py" "$out" )
   else
     ( cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
         claude -p "$PROMPT" --output-format json $DANGEROUS ${MODEL:+--model "$MODEL"} >"$out" 2>"$err" )
@@ -211,7 +223,7 @@ PY
   rm -f "$out" "$err"
 }
 
-VERSION=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$(dirname "$0")/../.claude-plugin/plugin.json" 2>/dev/null || echo "?")
+VERSION=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$SRCDIR/../.claude-plugin/plugin.json" 2>/dev/null || echo "?")
 NPROJ=$(grep -c . "$CFG/projects")
 log "seat-loop (orchestr $VERSION) bot=$BOT tier=$TIER profiles=[$PROFILES] projects=$NPROJ interval=${INTERVAL}s once=$ONCE"
 tick=0
@@ -256,7 +268,7 @@ while :; do
   now_stamp=$(stat -f %m "$SELF" 2>/dev/null || stat -c %Y "$SELF" 2>/dev/null || echo 0)
   if [ "$now_stamp" != "$SELF_STAMP" ]; then
     log "script updated on disk -> restarting self"
-    exec /bin/sh "$SELF" $ORIG_ARGS
+    ORCHESTR_SNAP=0 exec /bin/sh "$SELF" $ORIG_ARGS
   fi
   tick=$((tick + 1))
   [ "$tick" -eq 1 ] && [ "$worked" -eq 0 ] && log "idle — queues empty; events-gated ${INTERVAL}s polls, full check ~60s, heartbeat ~15m"
