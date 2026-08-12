@@ -27,6 +27,8 @@
 
 set -u
 CFG="$HOME/.config/orchestr"
+SELF="$0"; ORIG_ARGS="$*"
+SELF_STAMP=$(stat -f %m "$SELF" 2>/dev/null || stat -c %Y "$SELF" 2>/dev/null || echo 0)
 PROFILES=$(echo "${1:?profile}" | tr ',' ' '); BOT="${2:?bot-user}"; TIER="${3:?tier}"; shift 3
 ONCE=0; INTERVAL=10; DANGEROUS="--dangerously-skip-permissions"; MODEL=""
 WATCH=0; [ -t 1 ] && WATCH=1   # live session rendering when stdout is a terminal
@@ -66,16 +68,22 @@ log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG"; }
 # false positives cost one session; a MISSING queue here means the seat never
 # wakes for that work. glab quirk: mr list wants -F json, issue list wants -O json.)
 nonempty() { [ "$(printf %s "$1" | head -c 3)" != "[]" ] && [ -n "$1" ]; }
+unassigned() {  # stdin: issue-list JSON; true if any issue has no assignee
+  python3 -c 'import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(1)
+sys.exit(0 if any(not i.get("assignees") for i in d) else 1)'
+}
 has_work() {
   _mine=$(glab mr list --label changes-requested -F json 2>/dev/null | grep -c "\"username\":\"$BOT\"") || _mine=0
   [ "$_mine" -gt 0 ] && return 0
   case "$TIER" in
     mechanical)
-      nonempty "$(glab issue list --label needs-peer-check -O json 2>/dev/null)" && return 0
-      nonempty "$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null)" && return 0 ;;
+      glab issue list --label needs-peer-check -O json 2>/dev/null | unassigned && return 0
+      glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | unassigned && return 0 ;;
     standard)
       nonempty "$(glab mr list --label review:light -F json 2>/dev/null)" && return 0
-      nonempty "$(glab issue list --label ready-for-agent --label tier:standard -O json 2>/dev/null)" && return 0
+      glab issue list --label ready-for-agent --label tier:standard -O json 2>/dev/null | unassigned && return 0
       # aged mechanical (seat economy: >24h unclaimed)
       glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | python3 -c "
 import json,sys,datetime
@@ -92,7 +100,7 @@ sys.exit(1)" && return 0 ;;
       nonempty "$(glab mr list --label review:light -F json 2>/dev/null)" && return 0
       nonempty "$(glab mr list --merged --label needs-frontier-review -F json 2>/dev/null)" && return 0
       nonempty "$(glab issue list --label needs-triage -O json 2>/dev/null)" && return 0
-      nonempty "$(glab issue list --label ready-for-agent --label tier:frontier -O json 2>/dev/null)" && return 0 ;;
+      glab issue list --label ready-for-agent --label tier:frontier -O json 2>/dev/null | unassigned && return 0 ;;
   esac
   return 1
 }
@@ -166,6 +174,11 @@ while :; do
     fi
   done < "$CFG/projects"
   [ "$ONCE" -eq 1 ] && { log "once mode: exiting (worked=$worked)"; exit 0; }
+  now_stamp=$(stat -f %m "$SELF" 2>/dev/null || stat -c %Y "$SELF" 2>/dev/null || echo 0)
+  if [ "$now_stamp" != "$SELF_STAMP" ]; then
+    log "script updated on disk -> restarting self"
+    exec /bin/sh "$SELF" $ORIG_ARGS
+  fi
   tick=$((tick + 1))
   [ "$tick" -eq 1 ] && [ "$worked" -eq 0 ] && log "idle — queues empty; events-gated ${INTERVAL}s polls, full check ~60s, heartbeat ~15m"
   [ $(( tick % 90 )) -eq 0 ] && log "heartbeat: alive, tick $tick, idle"

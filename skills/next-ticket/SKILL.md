@@ -66,7 +66,7 @@ Abandoned claims: a claimed ticket whose newest note is over 24 hours old is a d
 ## 5. Hand off
 
 - Report-only tickets (the brief's deliverable is a comment, no MR): post the report, then hand off by label — mechanical seats swap `ready-for-agent` → `needs-peer-check` (a different-model seat verifies before triage consumes it); standard and frontier seats swap `ready-for-agent` → `needs-triage`. Unassign yourself and stop — closing is triage's call, never yours.
-- Open an MR with `Closes #<n>` and copy the issue's `review:*` label onto the MR — that label is what puts it in a reviewer's queue 1.
+- Open an MR with `Closes #<n>`, copy the issue's `review:*` label onto the MR (that label is what puts it in a reviewer's queue 1), and remove `ready-for-agent` from the issue — it is no longer claimable work; the MR carries it from here.
 - Post the report comment on the MR (required shape — the **Not verified** section is mandatory; unverifiable criteria surfaced here are how humans catch what agents cannot):
 
 ```markdown
