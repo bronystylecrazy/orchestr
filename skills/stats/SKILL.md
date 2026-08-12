@@ -41,5 +41,9 @@ python3 "<this skill's base directory>/scorecard.py" --days 7
 - **QUEUES** — depth and oldest item; the deepest-and-oldest queue is the
   system's current bottleneck (persistently the triage inbox → run more
   frontier triage sessions, not more implementers).
+- **LEDGER** — per-seat session counts and token cost from
+  `~/.config/orchestr/ledger/` (written by `bin/seat-loop.sh`; present only on
+  the machine running the loops). Cost is API-equivalent dollars — seats on
+  subscription plans bill by plan, so read it as relative effort, not invoice.
 - **FLAGS** — specific stuck items: aging reviews, wedged peer-checks,
   untouched ready tickets, claimed-but-quiet tickets (possible dead instance).

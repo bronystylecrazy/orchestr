@@ -170,6 +170,37 @@ def main():
                 quiet_h = (now - max(claim_times[-1], last_note)).total_seconds() / 3600
                 if quiet_h > 24:
                     flags.append(f"#{i['iid']} claimed but quiet {quiet_h:.0f}h")
+    # --- session ledger (local machine only; written by bin/seat-loop.sh) ---
+    import glob
+    import os
+    led = defaultdict(lambda: {"n": 0, "cost": 0.0, "tin": 0, "tout": 0, "err": 0})
+    cutoff = now - timedelta(days=args.days)
+    for f in glob.glob(os.path.expanduser("~/.config/orchestr/ledger/*.jsonl")):
+        prof = os.path.basename(f)[:-6]
+        for line in open(f):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            t = ts(r.get("ts"))
+            if not t or t < cutoff:
+                continue
+            k = f"{r.get('bot', '?')} ({prof})"
+            led[k]["n"] += 1
+            led[k]["cost"] += r.get("cost_usd") or 0
+            led[k]["tin"] += r.get("in") or 0
+            led[k]["tout"] += r.get("out") or 0
+            led[k]["err"] += 1 if r.get("is_error") else 0
+    if led:
+        print("-" * 72)
+        print(f"{'LEDGER (sessions)':<24}{'runs':>6}{'cost':>9}{'in-tok':>10}{'out-tok':>9}{'errs':>6}")
+        tot = {"n": 0, "cost": 0.0}
+        for k in sorted(led):
+            v = led[k]
+            print(f"{k:<24}{v['n']:>6}{'$%.2f' % v['cost']:>9}{v['tin']:>10}{v['tout']:>9}{v['err']:>6}")
+            tot["n"] += v["n"]; tot["cost"] += v["cost"]
+        print(f"{'total':<24}{tot['n']:>6}{'$%.2f' % tot['cost']:>9}   (API-equivalent; subscription seats bill by plan)")
+
     flags.extend(f"OVERRUN {o}" for o in overruns)
     print("FLAGS: " + (" · ".join(flags) if flags else "none"))
 
