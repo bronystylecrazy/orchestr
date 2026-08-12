@@ -262,7 +262,7 @@ PY
         _rid=$(printf %s "$1" | sed -n 's/.*#\([0-9][0-9]*\).*/\1/p')
         [ -n "$_rid" ] || return 0
         case "$1" in peer-check*) _lbl="" ;; *) _lbl="--label ready-for-agent" ;; esac
-        ( cd "$2" && glab issue update "$_rid" --unassignee "$BOT" $_lbl >/dev/null 2>&1
+        ( cd "$2" && glab issue update "$_rid" --assignee "!$BOT" $_lbl >/dev/null 2>&1
           glab issue note "$_rid" --message "claim-release: $BOT (session died before completing — runner recovery)" >/dev/null 2>&1 )
         log "recovered #$_rid after a dead session (claim released, queue label restored)" ;;
     esac

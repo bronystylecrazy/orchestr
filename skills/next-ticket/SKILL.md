@@ -42,6 +42,8 @@ glab quirk (do not "fix" for uniformity): `glab mr list` outputs JSON via `-F js
 
 ## 3. Claim (collision-safe)
 
+**Unassigning is `glab issue update <n> --assignee "!<your-bot-user>"`** — the `!` prefix removes. There is no `--unassignee` flag (it errors), and `!@me` silently does nothing; both leave the ticket assigned, which hides it from every queue. Wherever this skill says "unassign", use that exact form with your bot user spelled out.
+
 Once per session, before your first claim, generate your **instance id** — N sessions may share one bot user, and this is what tells them apart:
 
 ```bash
@@ -59,7 +61,7 @@ glab issue note <n> --message "claim: $INSTANCE $(date -u +%FT%TZ)"
 
 **Claims are phase-scoped**: compare only against comments carrying the *same prefix* as yours — `claim:` (working a ticket), `peer-claim:` (checking someone's report), `review-claim:`, `rework-claim:`. A producer's implementation `claim:` never blocks a later phase; only same-prefix claims contend.
 
-Re-read `glab issue view <n> --comments`. If a same-prefix claim comment with any instance id other than yours predates yours, the ticket is theirs — comment "backing off — claimed first by <their instance id>" and return to step 2. When the earlier claim is a **different bot user**, also `glab issue update <n> --unassignee @me`; when it is another instance of **your own bot user**, leave the assignee in place — it is theirs as much as yours, and unassigning would strip the winner's claim.
+Re-read `glab issue view <n> --comments`. If a same-prefix claim comment with any instance id other than yours predates yours, the ticket is theirs — comment "backing off — claimed first by <their instance id>" and return to step 2. When the earlier claim is a **different bot user**, also unassign yourself; when it is another instance of **your own bot user**, leave the assignee in place — it is theirs as much as yours, and unassigning would strip the winner's claim.
 
 A claim is **void** — regardless of age — once a later note reads `claim-release: <that instance id>`. Anyone may post one (the maintainer, or a seat that can prove the holder is gone), and the item is immediately takeable. This is how a claim held by a seat that ran out of capacity gets freed without waiting out the staleness window.
 
