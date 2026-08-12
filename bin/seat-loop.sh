@@ -101,7 +101,8 @@ for i in items:
         refs = re.findall(r"[Bb]locked by:?\s*(#\d[\d,\s#]*)", i.get("description") or "")
         if any(n in blockers for n in re.findall(r"\d+", " ".join(refs))): continue
     if mode == "reviewable":
-        if (i.get("author") or {}).get("username") == arg: continue           # never your own bot user
+        if (i.get("author") or {}).get("username") == arg \
+           and "review-floor" not in (i.get("labels") or []): continue        # own bot user: only under a declared floor
         if "changes-requested" in (i.get("labels") or []): continue           # sitting with its author
         revs = [(r.get("username") if isinstance(r, dict) else r) for r in (i.get("reviewers") or [])]
         if revs and arg not in revs: continue                                 # claimed or directed elsewhere
