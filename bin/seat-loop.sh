@@ -10,6 +10,7 @@
 #   --watch/--no-watch  live-render session activity (default: on when stdout is a TTY)
 #   --interval  poll seconds (default 10; events-gated — a full queue check runs every 6th tick)
 #   --directed  concierge mode: wake ONLY for human-assigned work (no pull queues)
+#   --timeout   kill a session that runs longer than N seconds (default 3600)
 #   --no-update disable post-session self-update (plugin caches + git pull)
 #   --model     pin the session model (e.g. sonnet) instead of the profile default
 #   --safe      DISABLE the default --dangerously-skip-permissions and rely on the
@@ -47,15 +48,17 @@ PROFILES=$(echo "${1:?profile}" | tr ',' ' '); BOT="${2:?bot-user}"; TIER="${3:?
 ONCE=0; INTERVAL=10; DANGEROUS="--dangerously-skip-permissions"; MODEL=""
 WATCH=0; [ -t 1 ] && WATCH=1   # live session rendering when stdout is a terminal
 while [ $# -gt 0 ]; do case "$1" in
-  --once) ONCE=1 ;; --interval) INTERVAL="$2"; shift ;;
-  --model) MODEL="$2"; shift ;;
+  --once) ONCE=1 ;; --interval) INTERVAL="${2:?--interval needs a value}"; shift ;;
+  --model) MODEL="${2:?--model needs a value}"; shift ;;
+  --timeout) TIMEOUT="${2:?--timeout needs a value}"; shift ;;
   --watch) WATCH=1 ;; --no-watch) WATCH=0 ;;
   --safe) DANGEROUS="" ;;
   --directed) DIRECTED=1 ;;
   --no-update) AUTOUPDATE=0 ;;
   --dangerous) DANGEROUS="--dangerously-skip-permissions" ;;
+  *) echo "unknown option: $1" >&2; exit 2 ;;
 esac; shift; done
-: "${AUTOUPDATE:=1}"; : "${DIRECTED:=0}"
+: "${AUTOUPDATE:=1}"; : "${DIRECTED:=0}"; : "${TIMEOUT:=3600}"
 PROMPT="/orchestr:next-ticket"; [ "$DIRECTED" -eq 1 ] && PROMPT="/orchestr:next-ticket directed-only"
 
 GITLAB_HOST=$(cat "$CFG/gitlab-host" 2>/dev/null) || { echo "missing $CFG/gitlab-host"; exit 1; }
@@ -153,10 +156,12 @@ sys.exit(0 if any(n.get('body','').startswith('claim:') and n['author']['usernam
 
 has_work() {  # echoes "<queue> <ref> <title>" when work exists (empty output = idle)
   # open issue iids — pick() uses these to skip tickets whose "Blocked by: #N" is still open
-  OPEN_IIDS=$(glab issue list -O json 2>/dev/null | python3 -c "
+  OPEN_IIDS=$(glab issue list -P 100 -O json 2>/dev/null | python3 -c "
 import json,sys
 try: print(','.join(str(i['iid']) for i in json.load(sys.stdin)))
 except Exception: print('')")
+  # fail CLOSED: an unknown blocker set must not wake the seat on blocked work
+  [ -n "$OPEN_IIDS" ] || return 1
   export OPEN_IIDS
   _f=$(glab mr list --label changes-requested -F json 2>/dev/null | pick '!' author "$BOT") && { echo "rework $_f"; return 0; }
   # directed work: human assigned this bot (label still on = not yet claimed)
@@ -202,6 +207,35 @@ except Exception: print('')")
   return 1
 }
 
+recover_own_orphans() {  # $1 = project dir. Repairs THIS bot's dead claims — no session needed.
+  # A ticket claimed by a session that died (killed loop, reboot, crash the runner never
+  # saw) keeps its assignee and has no queue label: invisible to everyone, forever.
+  ( cd "$1" || return 0
+    _mine=$(glab issue list --assignee "$BOT" -O json 2>/dev/null)
+    _mrs=$(glab mr list -F json 2>/dev/null)
+    printf '%s\n<<<SPLIT>>>\n%s' "$_mine" "$_mrs" | python3 -c "
+import json,sys,datetime
+raw = sys.stdin.read().split('<<<SPLIT>>>')
+try:
+    issues = json.loads(raw[0]); mrs = json.loads(raw[1])
+except Exception: sys.exit(0)
+refs = ' '.join((m.get('description') or '') + m.get('title','') for m in mrs)
+now = datetime.datetime.now(datetime.timezone.utc)
+parked = {'ready-for-agent','needs-triage','needs-peer-check','ready-for-human','needs-info','wontfix','blocked'}
+for i in issues:
+    L = set(i.get('labels') or [])
+    if not any(l.startswith('tier:') for l in L) or (parked & L): continue
+    if f\"#{i['iid']}\" in refs: continue                      # an open MR carries it
+    upd = datetime.datetime.fromisoformat(i['updated_at'].replace('Z','+00:00'))
+    if (now - upd).total_seconds() > 86400: print(i['iid'])
+" | while read -r _oid; do
+      [ -n "$_oid" ] || continue
+      glab issue update "$_oid" --assignee "!$BOT" --label ready-for-agent >/dev/null 2>&1
+      glab issue note "$_oid" --message "claim-release: $BOT (stale claim — no activity for 24h, no open MR; runner recovery)" >/dev/null 2>&1
+      log "recovered orphan #$_oid (stale claim released, ready-for-agent restored)"
+    done )
+}
+
 self_update() {  # post-session: refresh plugin caches + own repo; mtime restart handles the rest
   [ "$AUTOUPDATE" -eq 1 ] || return 0
   for p in $PROFILES; do
@@ -216,22 +250,35 @@ pick_profile() {  # first profile not cooling down
   now=$(date +%s)
   for p in $PROFILES; do
     until_ts=$(cat "$CFG/cooldown/$p" 2>/dev/null || echo 0)
+    case "$until_ts" in ''|*[!0-9]*) until_ts=0 ;; esac
     [ "$now" -ge "$until_ts" ] && { echo "$p"; return 0; }
   done
   return 1
 }
 
 run_session() {  # $1=profile $2=project-dir $3=detected-work description
-  out=$(mktemp); err=$(mktemp)
+  out=$(mktemp) && err=$(mktemp) || { log "mktemp failed; skipping tick"; return 0; }
   if [ "$WATCH" -eq 1 ]; then
-    ( cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
+    ( set -o pipefail 2>/dev/null; cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
         claude -p "$PROMPT" --output-format stream-json --verbose $DANGEROUS ${MODEL:+--model "$MODEL"} 2>"$err" \
-      | python3 "$SRCDIR/session-render.py" "$out" )
+      | python3 "$SRCDIR/session-render.py" "$out" ) &
   else
     ( cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
-        claude -p "$PROMPT" --output-format json $DANGEROUS ${MODEL:+--model "$MODEL"} >"$out" 2>"$err" )
+        exec claude -p "$PROMPT" --output-format json $DANGEROUS ${MODEL:+--model "$MODEL"} >"$out" 2>"$err" ) &
   fi
-  rc=$?
+  # watchdog: a hung session would otherwise wedge this seat forever (no heartbeat runs
+  # while the main loop is blocked). Killing it lands in the failure path, which releases
+  # the claim and backs the profile off, so the work returns to a queue.
+  _sid=$!; _deadline=$(( $(date +%s) + TIMEOUT ))
+  while kill -0 "$_sid" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "$_deadline" ]; then
+      pkill -P "$_sid" 2>/dev/null; kill -TERM "$_sid" 2>/dev/null; sleep 3; kill -KILL "$_sid" 2>/dev/null
+      log "session exceeded ${TIMEOUT}s -> killed"
+      break
+    fi
+    sleep 5
+  done
+  wait "$_sid" 2>/dev/null; rc=$?
   python3 - "$out" "$1" "$BOT" "$2" "$3" >>"$CFG/ledger/$1.jsonl" <<'PY'
 import json, sys, datetime
 try:
@@ -249,8 +296,15 @@ print(json.dumps({
     "is_error": d.get("is_error", True),
     "result_head": (d.get("result") or "")[:160]}))
 PY
-  # session woke but did nothing? record the refusal so we stop waking on that item
-  if grep -qiE "queue empty|no directed work|nothing (for me|to work)" "$out" 2>/dev/null; then
+  _iserr=$(python3 -c "
+import json,sys
+try: print('1' if json.load(open(sys.argv[1])).get('is_error') else '0')
+except Exception: print('unknown')" "$out" 2>/dev/null || echo unknown)
+
+  # session woke but did nothing? record the refusal so we stop waking on that item.
+  # ORCHESTR-NOOP is the skill's structured sentinel; the prose patterns are a fallback.
+  if grep -qE "ORCHESTR-NOOP" "$out" 2>/dev/null || \
+     grep -qiE "queue[s]? (is|are)? ?empty|no directed work|nothing (for me|to work)|all queues" "$out" 2>/dev/null; then
     _k=$(printf %s "$3" | cut -d' ' -f1,2)
     [ -n "$_k" ] && { echo "$(date +%s) $_k" >> "$CFG/refused-$BOT.list"; log "no-op session on [$_k] -> muted 15m or until the project changes (gate/skill disagreement)"; }
   fi
@@ -268,17 +322,22 @@ PY
     esac
   }
   # failure detection -> cool this profile so the next tick fails over
-  if grep -qiE "oauth|authenticate|please run /login|login required" "$out" "$err" 2>/dev/null; then
-    release_dead_claim "$3" "$2"
-    echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
-    log "profile $1 AUTH FAILURE -> cooling 1h, failing over. Fix: CLAUDE_CONFIG_DIR=\$HOME/.local/share/claude-profiles/$1 claude   (then /login)"
-  elif grep -qiE "usage limit|rate limit|over.{0,10}limit" "$out" "$err" 2>/dev/null; then
-    release_dead_claim "$3" "$2"
-    echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
-    log "profile $1 over limit -> cooling 1h (rc=$rc)"
-  elif [ $rc -ne 0 ]; then
-    release_dead_claim "$3" "$2"
-    log "session rc=$rc (unclassified failure); see stderr head:"; head -c 200 "$err" >>"$LOG"
+  # Classify FAILURES only. A successful session's own prose (this repo files authz and
+  # rate-limit tickets) must never cool a healthy profile — that froze every seat sharing it.
+  if [ "$_iserr" = "1" ] || [ "$rc" -ne 0 ]; then
+    if grep -qiE "oauth|authenticate|please run /login|login required" "$err" "$out" 2>/dev/null; then
+      release_dead_claim "$3" "$2"
+      echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
+      log "profile $1 AUTH FAILURE -> cooling 1h, failing over. Fix: CLAUDE_CONFIG_DIR=\$HOME/.local/share/claude-profiles/$1 claude   (then /login)"
+    elif grep -qiE "usage limit|rate limit|over.{0,10}limit" "$err" "$out" 2>/dev/null; then
+      release_dead_claim "$3" "$2"
+      echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
+      log "profile $1 over limit -> cooling 1h (rc=$rc)"
+    else
+      release_dead_claim "$3" "$2"
+      echo $(( $(date +%s) + 120 )) > "$CFG/cooldown/$1"   # D6: short backoff, never a hot respawn loop
+      log "session failed (rc=$rc, is_error=$_iserr) -> 2m backoff on $1; stderr head:"; head -c 200 "$err" >>"$LOG"
+    fi
   fi
   head -c 200 "$out" >>"$LOG"; echo >>"$LOG"
   rm -f "$out" "$err"
@@ -292,10 +351,11 @@ while :; do
   worked=0
   full=0
   { [ "$tick" -eq 0 ] || [ $(( tick % 6 )) -eq 0 ]; } && full=1   # startup + every ~60s: full check regardless of events
-  while IFS= read -r proj; do
+  while IFS= read -r proj || [ -n "$proj" ]; do
     [ -d "$proj" ] || continue
     if fresh_events "$proj"; then
-      rm -f "$CFG/refused-$BOT.list"   # something changed in the project: re-evaluate everything
+      :   # something changed: run the full check (the 15m TTL alone ages the refusal memo —
+          # wiping it here let seats re-burn sessions on the same undoable item every tick)
     elif [ "$full" -eq 0 ]; then
       continue
     fi
@@ -305,10 +365,8 @@ while :; do
     # session every tick (any future gate/skill mismatch costs one session, not many).
     if [ -n "$found" ]; then
       _key=$(printf %s "$found" | cut -d' ' -f1,2)
-      if grep -qF "$_key" "$CFG/refused-$BOT.list" 2>/dev/null; then
-        _fresh=$(awk -v k="$_key" -v now="$(date +%s)" '$0 ~ k && (now - $1) < 900 {print "y"; exit}' "$CFG/refused-$BOT.list")
-        [ "$_fresh" = "y" ] && found=""
-      fi
+      _fresh=$(awk -v k="$_key" -v now="$(date +%s)" '(now - $1) < 900 && $2" "$3 == k {print "y"; exit}' "$CFG/refused-$BOT.list" 2>/dev/null)
+      [ "$_fresh" = "y" ] && found=""
     fi
     if [ -n "$found" ]; then
       for _try in $PROFILES; do
@@ -321,7 +379,7 @@ while :; do
         [ "$_until" -gt "$(date +%s)" ] || break
         log "immediate failover: $prof cooled mid-tick"
       done
-      self_update
+      [ "$worked" -eq 1 ] && self_update
       break   # one ticket per tick; next tick re-evaluates all projects
     fi
   done < "$CFG/projects"
@@ -329,9 +387,14 @@ while :; do
   now_stamp=$(stat -f %m "$SELF" 2>/dev/null || stat -c %Y "$SELF" 2>/dev/null || echo 0)
   if [ "$now_stamp" != "$SELF_STAMP" ]; then
     log "script updated on disk -> restarting self"
+    sleep 2                      # never restart in a tight loop if the file keeps changing
+    set -f                       # $ORIG_ARGS must word-split but never glob
     ORCHESTR_SNAP=0 exec /bin/sh "$SELF" $ORIG_ARGS
   fi
   tick=$((tick + 1))
+  if [ $(( tick % 60 )) -eq 0 ]; then                    # ~every 10 min: clean up after dead sessions
+    while IFS= read -r _p || [ -n "$_p" ]; do [ -d "$_p" ] && recover_own_orphans "$_p"; done < "$CFG/projects"
+  fi
   [ "$tick" -eq 1 ] && [ "$worked" -eq 0 ] && log "idle — queues empty; events-gated ${INTERVAL}s polls, full check ~60s, heartbeat ~15m"
   [ $(( tick % 90 )) -eq 0 ] && log "heartbeat: alive, tick $tick, idle"
   sleep $(( INTERVAL + $(od -An -N1 -tu1 /dev/urandom | tr -d ' ') % 5 ))

@@ -36,7 +36,7 @@ queue 1; mechanical seats skip to queue 4.
 
    Seat economy: a standard seat takes a `tier:mechanical` ticket only when it has sat unclaimed for over 24 hours (check `created_at`) — fresher mechanical work belongs to the mechanical seats. The same aging rule lets a frontier seat take `tier:standard` and `tier:mechanical` work, and lets a standard or frontier seat take a `needs-peer-check` ticket no mechanical seat has verified in 24 hours (the peer-check floor: better a capable checker than none).
 
-All queues empty → report "queue empty for <seat>" and stop. That is a valid completion.
+All queues empty → report "queue empty for <seat>", end your final message with the literal line `ORCHESTR-NOOP`, and stop. That is a valid completion. The sentinel is load-bearing: the runner reads it to mute this item briefly, so a gate that disagrees with these rules costs one session instead of one every tick. Emit it whenever you take no work — including when you back off from a claim race.
 
 glab quirk (do not "fix" for uniformity): `glab mr list` outputs JSON via `-F json`; `glab issue list` via `-O json`. Each command above already carries its correct flag.
 
