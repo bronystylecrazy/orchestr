@@ -59,6 +59,8 @@ glab issue note <n> --message "claim: $INSTANCE $(date -u +%FT%TZ)"
 
 Re-read `glab issue view <n> --comments`. If a claim comment with any instance id other than yours predates yours, the ticket is theirs — comment "backing off — claimed first by <their instance id>" and return to step 2. When the earlier claim is a **different bot user**, also `glab issue update <n> --unassignee @me`; when it is another instance of **your own bot user**, leave the assignee in place — it is theirs as much as yours, and unassigning would strip the winner's claim.
 
+A claim is **void** — regardless of age — once a later note reads `claim-release: <that instance id>`. Anyone may post one (the maintainer, or a seat that can prove the holder is gone), and the item is immediately takeable. This is how a claim held by a seat that ran out of capacity gets freed without waiting out the staleness window.
+
 Abandoned claims: a claimed ticket whose newest note is over 24 hours old is a dead instance's (crash, power loss). Reclaim it — comment "reclaiming from <their instance id> (stale)", unassign them, then claim normally. This is the same staleness rule review-claims and rework-claims carry.
 
 ## 4. Work the ticket
