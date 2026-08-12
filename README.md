@@ -39,6 +39,14 @@ pattern are the only surfaces it depends on.
    `export GITLAB_TOKEN=<bot token> GITLAB_HOST=<your gitlab host>`
 3. Idle loop, once trusted: `/loop /orchestr:next-ticket`.
 
+## Instances (N sessions per model)
+
+Scale a seat by running N sessions with the **same** bot token — no extra
+GitLab users. Each session generates a random instance id at startup
+(`bot-minimax/i-9f3c`) and stamps it into claim comments; back-off compares
+instance ids, so same-account sessions never collide. Permissions, tier cap,
+and assignee attribution stay at the bot-user (model) level.
+
 ## Shared clone (multiple seats, one machine, one directory)
 
 Seats may share a single repo clone: queries and doc reads run from it

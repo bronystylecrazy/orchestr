@@ -37,12 +37,18 @@ glab quirk (do not "fix" for uniformity): `glab mr list` outputs JSON via `-F js
 
 ## 3. Claim (collision-safe)
 
+Once per session, before your first claim, generate your **instance id** — N sessions may share one bot user, and this is what tells them apart:
+
 ```bash
-glab issue update <n> --assignee @me
-glab issue note <n> --message "claim: <your-bot-user> $(date -u +%FT%TZ)"
+INSTANCE="<your-bot-user>/i-$(openssl rand -hex 2)"   # e.g. bot-minimax/i-9f3c
 ```
 
-Re-read `glab issue view <n> --comments`. If a claim comment from another user predates yours, the ticket is theirs: `glab issue update <n> --unassignee @me`, comment "backing off — claimed first by <user>", and return to step 2.
+```bash
+glab issue update <n> --assignee @me
+glab issue note <n> --message "claim: $INSTANCE $(date -u +%FT%TZ)"
+```
+
+Re-read `glab issue view <n> --comments`. If a claim comment with any instance id other than yours predates yours, the ticket is theirs — comment "backing off — claimed first by <their instance id>" and return to step 2. When the earlier claim is a **different bot user**, also `glab issue update <n> --unassignee @me`; when it is another instance of **your own bot user**, leave the assignee in place — it is theirs as much as yours, and unassigning would strip the winner's claim.
 
 ## 4. Work the ticket
 
