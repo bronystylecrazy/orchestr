@@ -189,10 +189,16 @@ while :; do
     [ -d "$proj" ] || continue
     if [ "$full" -eq 0 ] && ! fresh_events "$proj"; then continue; fi
     if ( cd "$proj" && has_work ); then
-      prof=$(pick_profile) || { log "all profiles cooling; skipping tick"; break; }
-      log "work detected in $proj -> session as $BOT via profile $prof"
-      run_session "$prof" "$proj"
-      worked=1
+      for _try in $PROFILES; do
+        prof=$(pick_profile) || { log "all profiles cooling; skipping tick"; break; }
+        log "work detected in $proj -> session as $BOT via profile $prof"
+        run_session "$prof" "$proj"
+        worked=1
+        # profile just got cooled by that session (auth/limit)? fail over NOW
+        _until=$(cat "$CFG/cooldown/$prof" 2>/dev/null || echo 0)
+        [ "$_until" -gt "$(date +%s)" ] || break
+        log "immediate failover: $prof cooled mid-tick"
+      done
       self_update
       break   # one ticket per tick; next tick re-evaluates all projects
     fi
