@@ -19,6 +19,7 @@ glab label create --name "review:frontier"      --color "#FF8C00" --description 
 glab label create --name "review:light"         --color "#FBCA04" --description "Standard-tier review suffices"
 glab label create --name "needs-frontier-review" --color "#D93F0B" --description "Merged without the required frontier review (debt)"
 glab label create --name "changes-requested"     --color "#C21E56" --description "Reviewer left findings; back with the MR author"
+glab label create --name "needs-peer-check"      --color "#5CB85C" --description "Mechanical report awaiting verification by a different-model seat"
 ```
 
 The five mattpocock triage labels are prerequisites (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`); create any of those that are missing too, with the descriptions from the repo's `docs/agents/triage-labels.md`.
@@ -54,4 +55,4 @@ Issues route to model seats by tier/review labels via the orchestr plugin
 
 ## Done when
 
-All twelve labels exist on the project, `issue-tracker.md` has no `-F json` hits, `docs/agents/model-routing.md` is committed, and CLAUDE.md points at it.
+All thirteen labels exist on the project, `issue-tracker.md` has no `-F json` hits, `docs/agents/model-routing.md` is committed, and CLAUDE.md points at it.

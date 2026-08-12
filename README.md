@@ -22,6 +22,10 @@ pattern are the only surfaces it depends on.
 - **Review debt is first-class** — work merged while the frontier model is
   over limit carries `needs-frontier-review` on the merged MR; frontier seats
   drain that queue first when idle.
+- **Peer-check** — a mechanical seat's report is verified by a
+  *different-model* mechanical seat (`needs-peer-check`) before triage spends
+  frontier attention on it; same-model instances share blind spots, so the
+  checker must be another bot user.
 
 ## Skills
 

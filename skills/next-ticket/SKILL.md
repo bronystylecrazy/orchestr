@@ -21,8 +21,9 @@ queue 1; mechanical seats skip to queue 4.
 0. **(all seats) Rework — your own MRs come before any new work** — `glab mr list --label changes-requested -F json`, keep only MRs authored by your bot user. A reviewer has left findings on your MR: check out its branch, address every finding (reply on the MR to each), push, then remove the label (`glab mr update <iid> --unlabel changes-requested`) to hand it back to the review queue. That completes this invocation.
 1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -F json` then `--label review:light`. Skip any MR labeled `changes-requested` (it is with its author), and any MR whose comments hold a `review-claim:` from another instance less than 24 hours old with no outcome yet. The first survivor IS your work item — jump to **Reviewing** below. Only an empty result moves you to the next queue; the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
 2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -F json`. Found one → **Reviewing**.
-3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Found issues → invoke orchestr:route on each, then restart at queue 1.
-4. **Implementation** — one query per tier (label filters AND together), from your cap downward:
+3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Fresh issues → invoke orchestr:route on each; tickets holding a completed, peer-confirmed report → spot-check it, make the decision it feeds, and close. Then restart at queue 1.
+4. **(mechanical seats) Peer-check** — `glab issue list --label needs-peer-check -O json`. Skip any ticket whose report was produced by your own bot user (read the claim comments — checker and producer must be **different models**; same-model instances share blind spots). Claim per step 3, then verify the report by re-running its key commands (the diffs, `git cherry`, the greps) against the current repo. Confirmed → comment `peer-check: confirmed` with what you re-ran, swap `needs-peer-check` → `needs-triage`, unassign. Discrepancy → comment the exact mismatch, swap `needs-peer-check` → `ready-for-agent`, unassign — it returns to the implementation queue with your findings as the correction brief.
+5. **Implementation** — one query per tier (label filters AND together), from your cap downward:
 
    ```bash
    glab issue list --label ready-for-agent --label tier:mechanical -O json
@@ -61,6 +62,7 @@ Re-read `glab issue view <n> --comments`. If a claim comment with any instance i
 
 ## 5. Hand off
 
+- Report-only tickets (the brief's deliverable is a comment, no MR): post the report, then hand off by label — mechanical seats swap `ready-for-agent` → `needs-peer-check` (a different-model seat verifies before triage consumes it); standard and frontier seats swap `ready-for-agent` → `needs-triage`. Unassign yourself and stop — closing is triage's call, never yours.
 - Open an MR with `Closes #<n>` and copy the issue's `review:*` label onto the MR — that label is what puts it in a reviewer's queue 1.
 - Post the report comment on the MR (required shape — the **Not verified** section is mandatory; unverifiable criteria surfaced here are how humans catch what agents cannot):
 
