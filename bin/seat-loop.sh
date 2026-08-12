@@ -9,6 +9,7 @@
 #   --once      run a single gated tick, then exit (testing / cron mode)
 #   --watch/--no-watch  live-render session activity (default: on when stdout is a TTY)
 #   --interval  poll seconds (default 10; events-gated — a full queue check runs every 6th tick)
+#   --no-update disable post-session self-update (plugin caches + git pull)
 #   --model     pin the session model (e.g. sonnet) instead of the profile default
 #   --safe      DISABLE the default --dangerously-skip-permissions and rely on the
 #               profile's settings.json permissions instead. NOTE (verified): deny
@@ -37,8 +38,10 @@ while [ $# -gt 0 ]; do case "$1" in
   --model) MODEL="$2"; shift ;;
   --watch) WATCH=1 ;; --no-watch) WATCH=0 ;;
   --safe) DANGEROUS="" ;;
+  --no-update) AUTOUPDATE=0 ;;
   --dangerous) DANGEROUS="--dangerously-skip-permissions" ;;
 esac; shift; done
+: "${AUTOUPDATE:=1}"
 
 GITLAB_HOST=$(cat "$CFG/gitlab-host" 2>/dev/null) || { echo "missing $CFG/gitlab-host"; exit 1; }
 GITLAB_TOKEN=$(awk -v b="$BOT" '$1==b{print $2}' "$CFG/tokens")
@@ -114,6 +117,16 @@ sys.exit(1)" && return 0
   return 1
 }
 
+self_update() {  # post-session: refresh plugin caches + own repo; mtime restart handles the rest
+  [ "$AUTOUPDATE" -eq 1 ] || return 0
+  for p in $PROFILES; do
+    CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$p" claude plugin update orchestr@orchestr >/dev/null 2>&1
+  done
+  repo_root=$(cd "$(dirname "$SELF")/.." && pwd)
+  [ -d "$repo_root/.git" ] && git -C "$repo_root" pull -q --ff-only 2>/dev/null
+  return 0
+}
+
 pick_profile() {  # first profile not cooling down
   now=$(date +%s)
   for p in $PROFILES; do
@@ -179,6 +192,7 @@ while :; do
       log "work detected in $proj -> session as $BOT via profile $prof"
       run_session "$prof" "$proj"
       worked=1
+      self_update
       break   # one ticket per tick; next tick re-evaluates all projects
     fi
   done < "$CFG/projects"
