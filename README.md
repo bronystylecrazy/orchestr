@@ -110,7 +110,34 @@ lists that spec tickets produce, and holding or overriding anything
 2. Set that seat's bot token in the profile environment — never rewrite the
    machine's global glab auth:
    `export GITLAB_TOKEN=<bot token> GITLAB_HOST=<your gitlab host>`
-3. Idle loop, once trusted: `/loop /orchestr:next-ticket`.
+3. Run the seat with `bin/seat-loop.sh` (below). Interactive
+   `/loop /orchestr:next-ticket` remains the attended/probation mode.
+
+## seat-loop.sh — the production runner
+
+One fresh session per ticket, gate-then-spawn: a free 60s `glab` poll per
+project, and a `claude -p "/orchestr:next-ticket"` session spawns only when a
+queue actually has work (an idle blind tick costs real tokens; the gate costs
+none). Config lives in `~/.config/orchestr/`: `tokens` (bot token lines),
+`gitlab-host`, `projects` (one local clone path per line — multi-project from
+day one).
+
+```bash
+bin/seat-loop.sh mm bot-minimax mechanical            # run a seat
+bin/seat-loop.sh kk bot-sonnet standard --interval 120
+bin/seat-loop.sh thun,thun2 bot-fable frontier        # profile failover order
+bin/seat-loop.sh mm bot-minimax mechanical --once     # single gated tick (testing/cron)
+```
+
+- **Permissions**: default expects the profile's `settings.json` allowlist —
+  merge `templates/seat-permissions.json` into it (read the existing file
+  first). `--dangerous` opts into skip-permissions for dedicated boxes only.
+- **Ledger**: every session's token usage and cost appends to
+  `~/.config/orchestr/ledger/<profile>.jsonl` — the decision-grade cost data.
+- **Failover**: an over-limit session puts its profile in
+  `~/.config/orchestr/cooldown/` and the next profile in the list takes over.
+- Instances: launch the same command N times (tmux) — instance-id claims
+  arbitrate as usual.
 
 ## Instances (N sessions per model)
 

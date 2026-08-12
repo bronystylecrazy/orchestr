@@ -1,0 +1,22 @@
+{
+  "_comment": "orchestr seat allowlist — MERGE the permissions.allow entries into the seat profile's settings.json (~/.local/share/claude-profiles/<profile>/settings.json). Do not overwrite an existing file; read it first. This is what lets headless seat-loop sessions run without --dangerously-skip-permissions on a shared machine.",
+  "permissions": {
+    "allow": [
+      "Bash(glab:*)",
+      "Bash(git:*)",
+      "Bash(go:*)",
+      "Bash(python3:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(openssl:*)",
+      "Bash(date:*)",
+      "Bash(mktemp:*)",
+      "Bash(shasum:*)",
+      "Read(//**)",
+      "Edit(//**/depot-registry/**)",
+      "Write(//**/depot-registry/**)",
+      "Edit(//tmp/**)",
+      "Write(//tmp/**)"
+    ]
+  }
+}

@@ -64,6 +64,8 @@ def main():
 
     done = defaultdict(int)            # closed issues per producing seat
     cycle = defaultdict(list)          # claim -> close, minutes
+    spent = defaultdict(int)           # /spend seconds per producing seat
+    overruns = []                      # tickets where spent > 2x estimate
     confirmed = defaultdict(int)       # peer-check confirmations per PRODUCER
     refuted = defaultdict(int)         # peer-check refutations per PRODUCER
     checks_done = defaultdict(int)     # peer-checks performed per CHECKER
@@ -78,6 +80,11 @@ def main():
             t0, t1 = ts(claims[-1]["created_at"]), ts(i["closed_at"])
             if t0 and t1 and t1 > t0:
                 cycle[producer].append((t1 - t0).total_seconds() / 60)
+        st = i.get("time_stats") or {}
+        if producer and st.get("total_time_spent"):
+            spent[producer] += st["total_time_spent"]
+        if st.get("time_estimate") and st.get("total_time_spent", 0) > 2 * st["time_estimate"]:
+            overruns.append(f"#{i['iid']} spent {st['total_time_spent']//60}m vs est {st['time_estimate']//60}m")
         for n in notes:
             body = n["body"]
             checker = seat_of(n["author"]["username"])
@@ -110,14 +117,15 @@ def main():
     print(f"orchestr scorecard — {win}, generated {now.strftime('%Y-%m-%d %H:%M')}Z")
     print("=" * 72)
     print(f"{'SEAT':<14}{'done':>5}{'peer-ok':>9}{'refuted':>9}{'checks':>8}"
-          f"{'rework/MR':>11}{'merges':>8}{'med cycle':>11}")
+          f"{'rework/MR':>11}{'merges':>8}{'med cycle':>11}{'spent':>8}")
     for s in seats:
         rw = rework.get(s)
         rw_s = f"{statistics.mean(rw):.1f}" if rw else "—"
         cy = cycle.get(s)
         cy_s = humanize(statistics.median(cy)) if cy else "—"
+        sp_s = humanize(spent[s] / 60) if spent.get(s) else "—"
         print(f"{s:<14}{done.get(s, 0):>5}{confirmed.get(s, 0):>9}{refuted.get(s, 0):>9}"
-              f"{checks_done.get(s, 0):>8}{rw_s:>11}{merges.get(s, 0):>8}{cy_s:>11}")
+              f"{checks_done.get(s, 0):>8}{rw_s:>11}{merges.get(s, 0):>8}{cy_s:>11}{sp_s:>8}")
     if tier_moves:
         print(f"tier escalations/moves in window: {tier_moves}")
 
@@ -162,6 +170,7 @@ def main():
                 quiet_h = (now - max(claim_times[-1], last_note)).total_seconds() / 3600
                 if quiet_h > 24:
                     flags.append(f"#{i['iid']} claimed but quiet {quiet_h:.0f}h")
+    flags.extend(f"OVERRUN {o}" for o in overruns)
     print("FLAGS: " + (" · ".join(flags) if flags else "none"))
 
 

@@ -19,8 +19,8 @@ Every seat checks queue 0 first. Then standard and frontier seats continue at
 queue 1; mechanical seats skip to queue 4.
 
 0. **(all seats) Rework — your own MRs come before any new work** — `glab mr list --label changes-requested -F json`, keep only MRs authored by your bot user. A reviewer has left findings on your MR: check out its branch, address every finding (reply on the MR to each), push, then remove the label (`glab mr update <iid> --unlabel changes-requested`) to hand it back to the review queue. That completes this invocation.
-1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -F json` then `--label review:light`. Skip any MR labeled `changes-requested` (it is with its author), and any MR whose comments hold a `review-claim:` from another instance less than 24 hours old with no outcome yet. The first survivor IS your work item — jump to **Reviewing** below. Only an empty result moves you to the next queue; the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
-2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -F json`. Found one → **Reviewing**.
+1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -F json` then `--label review:light`. Skip any MR labeled `changes-requested` (it is with its author), and any MR whose comments hold a `review-claim:` from another instance less than 24 hours old with no outcome yet. The first survivor IS your work item — read `REVIEWING.md` beside this skill and follow it. Only an empty result moves you to the next queue; the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
+2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -F json`. Found one → `REVIEWING.md`.
 3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Fresh issues → invoke orchestr:route on each; tickets holding a completed, peer-confirmed report → spot-check it, make the decision it feeds, and close. Then restart at queue 1.
 4. **(mechanical seats) Peer-check** — `glab issue list --label needs-peer-check -O json`. Skip any ticket whose report was produced by your own bot user (read the claim comments — checker and producer must be **different models**; same-model instances share blind spots). Claim per step 3, then verify the report by re-running its key commands (the diffs, `git cherry`, the greps) against the current repo. Confirmed → comment `peer-check: confirmed` with what you re-ran, swap `needs-peer-check` → `needs-triage`, unassign. Discrepancy → comment starting `peer-check: refuted` with the exact mismatch, swap `needs-peer-check` → `ready-for-agent`, unassign — it returns to the implementation queue with your findings as the correction brief. (The `confirmed`/`refuted` prefixes are load-bearing — the stats skill parses them.)
 5. **Implementation** — one query per tier (label filters AND together), from your cap downward:
@@ -59,6 +59,7 @@ Re-read `glab issue view <n> --comments`. If a claim comment with any instance i
 - The ticket's brief is the spec. Implement with mattpocock-skills:tdd when the bar is expressible as tests.
 - Loop until every command in the ticket's `## Verification` section passes **verbatim** — green means actual command output you ran, never expectation.
 - If the bar will not pass after honest attempts, escalate: move the tier label one step up, unassign yourself, comment what failed with your branch name, and stop. One bounce only — the higher tier decides whether it becomes `ready-for-human`.
+- Too **big** rather than too hard? Split instead of escalating: create child issues each carrying `Parent: #<this>` as its first line plus a `relates_to` link (`glab api "projects/:id/issues/<child>/links" -X POST -f target_project_id=<numeric id from glab api projects/:id> -f target_issue_iid=<this> -f link_type=relates_to`), label them `needs-triage` — routing stays triage's call — then unassign and swap this ticket's `ready-for-agent` → `needs-triage` so triage can turn it into a held tracking node.
 
 ## 5. Hand off
 
@@ -77,13 +78,10 @@ Re-read `glab issue view <n> --comments`. If a claim comment with any instance i
 <anything you could not exercise: UI click-throughs, prod-only behavior, external services. Write "nothing" only if truly nothing.>
 ```
 
+- Tick the acceptance-criteria checkboxes you actually verified (`- [x]` in the issue description) — a visual mirror of `## Verified`, nothing more; review still gates.
+- Record your clock: `glab issue note <n> --message "/spend <minutes>m"` **as its own note** (quick actions mixed with text post as literal text), minutes = now minus your claim timestamp. Peer-checkers do the same when finishing a check.
 - Leave the MR open — **the reviewer merges**. Your ticket is finished when the MR is open, labeled, and the report is posted.
 
-## Reviewing (frontier seats, and standard seats on the review floor)
+## Reviewing
 
-0. Claim the review — same protocol as ticket claims: `glab mr note <iid> --message "review-claim: $INSTANCE $(date -u +%FT%TZ)"`, re-read the comments; if a fresher-than-24h `review-claim:` from another instance predates yours, back off to the queues. Claim held → also `glab mr update <iid> --reviewer <your-bot-user>` so the UI shows who is reviewing (the comment stays the source of truth).
-1. Review the MR against its originating issue's brief with mattpocock-skills:code-review.
-2. Findings → comment each on the MR **and add the `changes-requested` label** (`glab mr update <iid> --label changes-requested --assignee <author-bot-user>`) — the label routes the MR into its author's queue 0 (without it the findings rot), and the assignee makes "whose move" visible in the UI. Clean → approve and merge.
-3. **`glab mr merge` lies** — it prints success on failure. After merging, verify with `glab api projects/:id/merge_requests/<iid>` and confirm `state == "merged"` and `merged_at` is set.
-4. Review-floor case (standard seat merging a `review:frontier` MR while the frontier model is unavailable): after the verified merge, label the merged MR `needs-frontier-review` — that is the debt queue.
-5. Review-debt case (merged MR): review the merged diff; findings become new issues labeled `needs-triage`; finish by removing `needs-frontier-review` from the MR.
+Holding work from queues 1–2? Read `REVIEWING.md` beside this skill and follow it — load it only then.
