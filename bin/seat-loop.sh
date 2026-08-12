@@ -192,7 +192,7 @@ PY
   # session woke but did nothing? record the refusal so we stop waking on that item
   if grep -qiE "queue empty|no directed work|nothing (for me|to work)" "$out" 2>/dev/null; then
     _k=$(printf %s "$3" | cut -d' ' -f1,2)
-    [ -n "$_k" ] && { echo "$(date +%s) $_k" >> "$CFG/refused-$BOT.list"; log "no-op session on [$_k] -> muted for 1h (gate/skill disagreement)"; }
+    [ -n "$_k" ] && { echo "$(date +%s) $_k" >> "$CFG/refused-$BOT.list"; log "no-op session on [$_k] -> muted 15m or until the project changes (gate/skill disagreement)"; }
   fi
   # failure detection -> cool this profile so the next tick fails over
   if grep -qiE "oauth|authenticate|please run /login|login required" "$out" "$err" 2>/dev/null; then
@@ -218,7 +218,11 @@ while :; do
   { [ "$tick" -eq 0 ] || [ $(( tick % 6 )) -eq 0 ]; } && full=1   # startup + every ~60s: full check regardless of events
   while IFS= read -r proj; do
     [ -d "$proj" ] || continue
-    if [ "$full" -eq 0 ] && ! fresh_events "$proj"; then continue; fi
+    if fresh_events "$proj"; then
+      rm -f "$CFG/refused-$BOT.list"   # something changed in the project: re-evaluate everything
+    elif [ "$full" -eq 0 ]; then
+      continue
+    fi
     found=$(cd "$proj" && has_work)
     # refusal memo: a session that woke for this exact item and did nothing means the
     # gate and the skill disagree. Ignore that item for an hour instead of burning a
@@ -226,7 +230,7 @@ while :; do
     if [ -n "$found" ]; then
       _key=$(printf %s "$found" | cut -d' ' -f1,2)
       if grep -qF "$_key" "$CFG/refused-$BOT.list" 2>/dev/null; then
-        _fresh=$(awk -v k="$_key" -v now="$(date +%s)" '$0 ~ k && (now - $1) < 3600 {print "y"; exit}' "$CFG/refused-$BOT.list")
+        _fresh=$(awk -v k="$_key" -v now="$(date +%s)" '$0 ~ k && (now - $1) < 900 {print "y"; exit}' "$CFG/refused-$BOT.list")
         [ "$_fresh" = "y" ] && found=""
       fi
     fi
