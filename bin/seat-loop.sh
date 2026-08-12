@@ -117,7 +117,10 @@ PY
   rm -f "$out" "$err"
 }
 
-log "seat-loop start bot=$BOT tier=$TIER profiles=[$PROFILES] interval=${INTERVAL}s once=$ONCE"
+VERSION=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$(dirname "$0")/../.claude-plugin/plugin.json" 2>/dev/null || echo "?")
+NPROJ=$(grep -c . "$CFG/projects")
+log "seat-loop (orchestr $VERSION) bot=$BOT tier=$TIER profiles=[$PROFILES] projects=$NPROJ interval=${INTERVAL}s once=$ONCE"
+tick=0
 while :; do
   worked=0
   while IFS= read -r proj; do
@@ -131,5 +134,8 @@ while :; do
     fi
   done < "$CFG/projects"
   [ "$ONCE" -eq 1 ] && { log "once mode: exiting (worked=$worked)"; exit 0; }
+  tick=$((tick + 1))
+  [ "$tick" -eq 1 ] && [ "$worked" -eq 0 ] && log "idle — queues empty; polling every ~${INTERVAL}s, heartbeat every ~15m"
+  [ $(( tick % 15 )) -eq 0 ] && log "heartbeat: alive, tick $tick, idle"
   sleep $(( INTERVAL + $(od -An -N1 -tu1 /dev/urandom | tr -d ' ') % 30 ))
 done
