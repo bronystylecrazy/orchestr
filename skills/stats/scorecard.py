@@ -233,6 +233,16 @@ def main():
             tot["n"] += v["n"]; tot["cost"] += v["cost"]
         print(f"{'total':<24}{tot['n']:>6}{'$%.2f' % tot['cost']:>9}   (API-equivalent; subscription seats bill by plan)")
 
+    # orphans: routed (tier label) but invisible to every queue — no ready-for-agent,
+    # no assignee, no open MR. A claim strips the label; a crashed session never restores it.
+    mr_refs = " ".join((m.get("description") or "") + m["title"] for m in open_mrs)
+    for i in open_issues:
+        if any(l.startswith("tier:") for l in i.get("labels", [])) \
+                and "ready-for-agent" not in i["labels"] \
+                and "needs-triage" not in i["labels"] \
+                and not i["assignees"] and f"#{i['iid']}" not in mr_refs:
+            flags.append(f"ORPHAN #{i['iid']} routed but in no queue (restore ready-for-agent)")
+
     flags.extend(f"OVERRUN {o}" for o in overruns)
     flags.extend(f"SPEND? {s}" for s in spend_audit)
     print("FLAGS: " + (" · ".join(flags) if flags else "none"))

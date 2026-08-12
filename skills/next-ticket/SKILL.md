@@ -53,7 +53,9 @@ glab issue update <n> --assignee @me --unlabel ready-for-agent
 glab issue note <n> --message "claim: $INSTANCE $(date -u +%FT%TZ)"
 ```
 
-(Removing `ready-for-agent` at claim is load-bearing: assigned **with** the label = delegated-awaiting-pickup; assigned **without** it = in-flight claim. Re-add the label if you back off.)
+(Removing `ready-for-agent` at claim is load-bearing: assigned **with** the label = delegated-awaiting-pickup; assigned **without** it = in-flight claim.)
+
+**Whenever you let a ticket go without finishing it — backing off, escalating, being outraced, or stopping for any reason — restore `ready-for-agent` as you unassign.** A ticket with a tier label but neither the label nor an assignee is invisible to every seat and sits open forever. Reclaiming an abandoned claim (step 3's staleness rule) is the only case where the label stays off, because you are taking it over.
 
 Re-read `glab issue view <n> --comments`. If a claim comment with any instance id other than yours predates yours, the ticket is theirs — comment "backing off — claimed first by <their instance id>" and return to step 2. When the earlier claim is a **different bot user**, also `glab issue update <n> --unassignee @me`; when it is another instance of **your own bot user**, leave the assignee in place — it is theirs as much as yours, and unassigning would strip the winner's claim.
 
