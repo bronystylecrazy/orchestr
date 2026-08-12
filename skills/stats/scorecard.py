@@ -243,6 +243,15 @@ def main():
                 and not i["assignees"] and f"#{i['iid']}" not in mr_refs:
             flags.append(f"ORPHAN #{i['iid']} routed but in no queue (restore ready-for-agent)")
 
+    # stale blocks: labeled `blocked` but every named blocker is closed
+    open_iids = {str(i["iid"]) for i in open_issues}
+    for i in open_issues:
+        if "blocked" not in i.get("labels", []):
+            continue
+        named = re.findall(r"\d+", " ".join(re.findall(r"[Bb]locked by:?\s*(#\d[\d,\s#]*)", i.get("description") or "")))
+        if named and not (set(named) & open_iids):
+            flags.append(f"STALE-BLOCK #{i['iid']} blockers all closed (unblock it)")
+
     flags.extend(f"OVERRUN {o}" for o in overruns)
     flags.extend(f"SPEND? {s}" for s in spend_audit)
     print("FLAGS: " + (" · ".join(flags) if flags else "none"))

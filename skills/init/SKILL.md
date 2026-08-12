@@ -20,6 +20,7 @@ glab label create --name "review:light"         --color "#FBCA04" --description 
 glab label create --name "needs-frontier-review" --color "#D93F0B" --description "Merged without the required frontier review (debt)"
 glab label create --name "changes-requested"     --color "#C21E56" --description "Reviewer left findings; back with the MR author"
 glab label create --name "needs-peer-check"      --color "#5CB85C" --description "Mechanical report awaiting verification by a different-model seat"
+glab label create --name "blocked"               --color "#6B4423" --description "Waiting on a dependency (see 'Blocked by: #N') — invisible to seat queues until unblocked"
 ```
 
 The five mattpocock triage labels are prerequisites (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`); create any of those that are missing too, with the descriptions from the repo's `docs/agents/triage-labels.md`.

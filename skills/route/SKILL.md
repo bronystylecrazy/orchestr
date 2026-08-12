@@ -44,7 +44,9 @@ Rewrite the issue description so a seat can execute it with no other context:
 <the adjacent work this ticket must not touch>
 ```
 
-If the ticket depends on another open issue, put `Blocked by: #N` as the first line (this instance is GitLab CE — there are no native blocking links).
+If the ticket depends on another open issue, put `Blocked by: #N` as the first line **and apply the `blocked` label** (this instance is GitLab CE — there are no native blocking links). The label keeps it out of every seat's queue and shows on the board; the line records *why* and is what unblocks it later.
+
+**Unblocking is part of closing.** Before you close any issue, search for dependents — `glab issue list --label blocked -O json` and check their descriptions for `Blocked by: #<the one you are closing>`. For each whose blockers are now all closed: remove `blocked`, restore `ready-for-agent`, and comment which blocker cleared. A `blocked` label nobody removes is an invisible ticket.
 
 ## Announce the routing
 

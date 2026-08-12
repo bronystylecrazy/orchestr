@@ -92,6 +92,7 @@ for i in items:
     if minage:
         age = (now - datetime.datetime.fromisoformat(i["created_at"].replace("Z", "+00:00"))).total_seconds()
         if age < minage: continue
+    if "blocked" in (i.get("labels") or []): continue                         # parked on a dependency
     if mode == "unassigned" and i.get("assignees"): continue
     if mode == "author" and (i.get("author") or {}).get("username") != arg: continue
     if mode == "notlabel" and arg in (i.get("labels") or []): continue
