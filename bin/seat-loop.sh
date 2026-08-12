@@ -8,9 +8,12 @@
 #   tier      frontier | standard | mechanical  (selects the has_work pre-filter)
 #   --once      run a single gated tick, then exit (testing / cron mode)
 #   --interval  poll seconds (default 60)
-#   --dangerous pass --dangerously-skip-permissions to claude (dedicated boxes only;
-#               default expects the profile's settings.json allowlist — see
-#               templates/seat-permissions.json in this plugin)
+#   --model     pin the session model (e.g. sonnet) instead of the profile default
+#   --safe      DISABLE the default --dangerously-skip-permissions and rely on the
+#               profile's settings.json permissions instead. NOTE (verified): deny
+#               rules do NOT hold under skip-permissions — the default mode's only
+#               fences are the skill's stay-in-your-worktree rule and the bots'
+#               limited GitLab roles.
 #
 # Config:
 #   ~/.config/orchestr/tokens       lines: "<bot-user> <token>"
@@ -24,10 +27,11 @@
 set -u
 CFG="$HOME/.config/orchestr"
 PROFILES=$(echo "${1:?profile}" | tr ',' ' '); BOT="${2:?bot-user}"; TIER="${3:?tier}"; shift 3
-ONCE=0; INTERVAL=60; DANGEROUS=""; MODEL=""
+ONCE=0; INTERVAL=60; DANGEROUS="--dangerously-skip-permissions"; MODEL=""
 while [ $# -gt 0 ]; do case "$1" in
   --once) ONCE=1 ;; --interval) INTERVAL="$2"; shift ;;
   --model) MODEL="$2"; shift ;;
+  --safe) DANGEROUS="" ;;
   --dangerous) DANGEROUS="--dangerously-skip-permissions" ;;
 esac; shift; done
 

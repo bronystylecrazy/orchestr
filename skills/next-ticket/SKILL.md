@@ -55,7 +55,7 @@ Re-read `glab issue view <n> --comments`. If a claim comment with any instance i
 ## 4. Work the ticket
 
 - First, verify the premise: check the ticket's acceptance criteria against current `main`. If they already hold — the work landed some other way — post the evidence as a comment, unassign yourself, and swap `ready-for-agent` for `needs-triage`; triage confirms and closes, you don't.
-- Isolate in a worktree (superpowers:using-git-worktrees).
+- Isolate in a worktree (superpowers:using-git-worktrees). Every file you create or modify lives inside that worktree, the hub clone, or /tmp — nowhere else on the machine, unless the brief explicitly says so.
 - The ticket's brief is the spec. Implement with mattpocock-skills:tdd when the bar is expressible as tests.
 - Loop until every command in the ticket's `## Verification` section passes **verbatim** — green means actual command output you ran, never expectation.
 - If the bar will not pass after honest attempts, escalate: move the tier label one step up, unassign yourself, comment what failed with your branch name, and stop. One bounce only — the higher tier decides whether it becomes `ready-for-human`.
