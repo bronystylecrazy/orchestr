@@ -123,6 +123,32 @@ for i in items:
 sys.exit(1)' "$1" "$2" "${3:-}" "${4:-}" "${OPEN_IIDS:-}"
 }
 
+pick_all() {  # like pick, but prints every match (used where the first candidate may be ineligible)
+  python3 -c '
+import json, sys
+sigil, mode = sys.argv[1], sys.argv[2]
+try: items = json.load(sys.stdin)
+except Exception: sys.exit(1)
+if not isinstance(items, list): sys.exit(1)
+out = []
+for i in items:
+    if not isinstance(i, dict): continue
+    if "blocked" in (i.get("labels") or []): continue
+    if mode == "unassigned" and i.get("assignees"): continue
+    out.append(sigil + str(i["iid"]) + " " + (i.get("title") or "")[:58])
+print("\n".join(out))
+sys.exit(0 if out else 1)' "$1" "$2"
+}
+
+produced_by_me() {  # $1 = issue iid; true when THIS bot user wrote the report (cannot check its own)
+  glab api "projects/:id/issues/$1/notes?per_page=100" 2>/dev/null | python3 -c "
+import json,sys
+bot=sys.argv[1]
+try: notes=json.load(sys.stdin)
+except Exception: sys.exit(1)
+sys.exit(0 if any(n.get('body','').startswith('claim:') and n['author']['username']==bot for n in notes) else 1)" "$BOT"
+}
+
 has_work() {  # echoes "<queue> <ref> <title>" when work exists (empty output = idle)
   # open issue iids — pick() uses these to skip tickets whose "Blocked by: #N" is still open
   OPEN_IIDS=$(glab issue list -O json 2>/dev/null | python3 -c "
@@ -137,7 +163,19 @@ except Exception: print('')")
   [ "$DIRECTED" -eq 1 ] && return 1   # directed-only seats never wake for pull queues
   case "$TIER" in
     mechanical)
-      _f=$(glab issue list --label needs-peer-check -O json 2>/dev/null | pick '#' unassigned) && { echo "peer-check $_f"; return 0; }
+      # peer-check: checker and producer must be different bot users, so test candidates
+      # in order rather than waking on the first one (which may be this seat's own report)
+      _cands=$(glab issue list --label needs-peer-check -O json 2>/dev/null | pick_all '#' unassigned)
+      if [ -n "$_cands" ]; then
+        _oifs=$IFS; IFS='
+'
+        for _c in $_cands; do
+          IFS=$_oifs
+          _iid=${_c%% *}; _iid=${_iid#\#}
+          produced_by_me "$_iid" || { echo "peer-check $_c"; return 0; }
+        done
+        IFS=$_oifs
+      fi
       _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:mechanical $_f"; return 0; } ;;
     standard)
       _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review:light $_f"; return 0; }
