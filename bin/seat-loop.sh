@@ -97,7 +97,16 @@ for i in issues:
 sys.exit(1)" && return 0 ;;
     frontier)
       nonempty "$(glab mr list --label review:frontier -F json 2>/dev/null)" && return 0
-      nonempty "$(glab mr list --label review:light -F json 2>/dev/null)" && return 0
+      # review:light only when aged >4h (seat economy — fresh light reviews are standard's)
+      glab mr list --label review:light -F json 2>/dev/null | python3 -c "
+import json,sys,datetime
+now=datetime.datetime.now(datetime.timezone.utc)
+try: mrs=json.load(sys.stdin)
+except Exception: sys.exit(1)
+for m in mrs:
+    age=(now-datetime.datetime.fromisoformat(m['created_at'].replace('Z','+00:00'))).total_seconds()
+    if age>14400: sys.exit(0)
+sys.exit(1)" && return 0
       nonempty "$(glab mr list --merged --label needs-frontier-review -F json 2>/dev/null)" && return 0
       nonempty "$(glab issue list --label needs-triage -O json 2>/dev/null)" && return 0
       glab issue list --label ready-for-agent --label tier:frontier -O json 2>/dev/null | unassigned && return 0 ;;
