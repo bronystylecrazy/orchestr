@@ -15,10 +15,11 @@ Pull-based dispatch: pick → claim → work → hand off. One invocation works 
 
 ## 2. Pick
 
-Work the queues in this order. Standard seats start at queue 1; mechanical
-seats start at queue 4.
+Every seat checks queue 0 first. Then standard and frontier seats continue at
+queue 1; mechanical seats skip to queue 4.
 
-1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -F json` then `--label review:light`. Any MR these queries return IS your work item: take the first and jump to **Reviewing** below. Only an empty result moves you to the next queue — the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
+0. **(all seats) Rework — your own MRs come before any new work** — `glab mr list --label changes-requested -F json`, keep only MRs authored by your bot user. A reviewer has left findings on your MR: check out its branch, address every finding (reply on the MR to each), push, then remove the label (`glab mr update <iid> --unlabel changes-requested`) to hand it back to the review queue. That completes this invocation.
+1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -F json` then `--label review:light`. Skip any MR labeled `changes-requested` (it is with its author), and any MR whose comments hold a `review-claim:` from another instance less than 24 hours old with no outcome yet. The first survivor IS your work item — jump to **Reviewing** below. Only an empty result moves you to the next queue; the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`.
 2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -F json`. Found one → **Reviewing**.
 3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Found issues → invoke orchestr:route on each, then restart at queue 1.
 4. **Implementation** — one query per tier (label filters AND together), from your cap downward:
@@ -78,8 +79,9 @@ Re-read `glab issue view <n> --comments`. If a claim comment with any instance i
 
 ## Reviewing (frontier seats, and standard seats on the review floor)
 
+0. Claim the review — same protocol as ticket claims: `glab mr note <iid> --message "review-claim: $INSTANCE $(date -u +%FT%TZ)"`, re-read the comments; if a fresher-than-24h `review-claim:` from another instance predates yours, back off to the queues.
 1. Review the MR against its originating issue's brief with mattpocock-skills:code-review.
-2. Findings → comment them on the MR and leave it open for the implementer; clean → approve and merge.
+2. Findings → comment each on the MR **and add the `changes-requested` label** (`glab mr update <iid> --label changes-requested`) — that label is what routes the MR into its author's queue 0; without it the findings rot. Clean → approve and merge.
 3. **`glab mr merge` lies** — it prints success on failure. After merging, verify with `glab api projects/:id/merge_requests/<iid>` and confirm `state == "merged"` and `merged_at` is set.
 4. Review-floor case (standard seat merging a `review:frontier` MR while the frontier model is unavailable): after the verified merge, label the merged MR `needs-frontier-review` — that is the debt queue.
 5. Review-debt case (merged MR): review the merged diff; findings become new issues labeled `needs-triage`; finish by removing `needs-frontier-review` from the MR.
