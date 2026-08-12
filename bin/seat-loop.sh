@@ -117,7 +117,9 @@ for i in items:
            and "review-floor" not in (i.get("labels") or []): continue        # own bot user: only under a declared floor
         if "changes-requested" in (i.get("labels") or []): continue           # sitting with its author
         revs = [(r.get("username") if isinstance(r, dict) else r) for r in (i.get("reviewers") or [])]
-        if revs and arg not in revs: continue                                 # claimed or directed elsewhere
+        # debt is by definition for a seat OTHER than the one in the reviewer field
+        if revs and arg not in revs \
+           and "needs-frontier-review" not in (i.get("labels") or []): continue   # claimed or directed elsewhere
     print(sigil + str(i["iid"]) + " " + (i.get("title") or "")[:58])
     sys.exit(0)
 sys.exit(1)' "$1" "$2" "${3:-}" "${4:-}" "${OPEN_IIDS:-}"
@@ -183,14 +185,19 @@ except Exception: print('')")
       _f=$(glab mr list --label review:frontier --label review-floor -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review:frontier-floor $_f"; return 0; }
       _f=$(glab issue list --label ready-for-agent --label tier:standard -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:standard $_f"; return 0; }
       # aged mechanical (seat economy: >24h unclaimed)
-      _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned "" 86400) && { echo "impl:mechanical-aged $_f"; return 0; } ;;
+      _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned "" 86400) && { echo "impl:mechanical-aged $_f"; return 0; }
+      _f=$(glab issue list --label needs-peer-check -O json 2>/dev/null | pick '#' unassigned "" 86400) && { echo "peer-check-floor $_f"; return 0; } ;;
     frontier)
       _f=$(glab mr list --label review:frontier -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review:frontier $_f"; return 0; }
       # review:light only when aged >4h (seat economy — fresh light reviews are standard's)
       _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' reviewable "$BOT" 14400) && { echo "review:light-aged $_f"; return 0; }
       _f=$(glab mr list --merged --label needs-frontier-review -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review-debt $_f"; return 0; }
       _f=$(glab issue list --label needs-triage -O json 2>/dev/null | pick '#' any) && { echo "triage $_f"; return 0; }
-      _f=$(glab issue list --label ready-for-agent --label tier:frontier -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:frontier $_f"; return 0; } ;;
+      _f=$(glab issue list --label ready-for-agent --label tier:frontier -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:frontier $_f"; return 0; }
+      # cap-and-below, aged: a frontier seat backstops tiers with no live seat
+      _f=$(glab issue list --label ready-for-agent --label tier:standard -O json 2>/dev/null | pick '#' unassigned "" 86400) && { echo "impl:standard-aged $_f"; return 0; }
+      _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned "" 86400) && { echo "impl:mechanical-aged $_f"; return 0; }
+      _f=$(glab issue list --label needs-peer-check -O json 2>/dev/null | pick '#' unassigned "" 86400) && { echo "peer-check-floor $_f"; return 0; } ;;
   esac
   return 1
 }
@@ -247,14 +254,30 @@ PY
     _k=$(printf %s "$3" | cut -d' ' -f1,2)
     [ -n "$_k" ] && { echo "$(date +%s) $_k" >> "$CFG/refused-$BOT.list"; log "no-op session on [$_k] -> muted 15m or until the project changes (gate/skill disagreement)"; }
   fi
+  # A session that died mid-work (auth, limit, crash) leaves its ticket claimed with no
+  # queue label — invisible to every seat. The runner knows the item, so it repairs it.
+  release_dead_claim() {  # $1 = the work description this session held
+    case "$1" in
+      "claim"*|*" #"*|"impl:"*|"directed #"*|"peer-check"*)
+        _rid=$(printf %s "$1" | sed -n 's/.*#\([0-9][0-9]*\).*/\1/p')
+        [ -n "$_rid" ] || return 0
+        case "$1" in peer-check*) _lbl="" ;; *) _lbl="--label ready-for-agent" ;; esac
+        ( cd "$2" && glab issue update "$_rid" --unassignee "$BOT" $_lbl >/dev/null 2>&1
+          glab issue note "$_rid" --message "claim-release: $BOT (session died before completing — runner recovery)" >/dev/null 2>&1 )
+        log "recovered #$_rid after a dead session (claim released, queue label restored)" ;;
+    esac
+  }
   # failure detection -> cool this profile so the next tick fails over
   if grep -qiE "oauth|authenticate|please run /login|login required" "$out" "$err" 2>/dev/null; then
+    release_dead_claim "$3" "$2"
     echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
     log "profile $1 AUTH FAILURE -> cooling 1h, failing over. Fix: CLAUDE_CONFIG_DIR=\$HOME/.local/share/claude-profiles/$1 claude   (then /login)"
   elif grep -qiE "usage limit|rate limit|over.{0,10}limit" "$out" "$err" 2>/dev/null; then
+    release_dead_claim "$3" "$2"
     echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
     log "profile $1 over limit -> cooling 1h (rc=$rc)"
   elif [ $rc -ne 0 ]; then
+    release_dead_claim "$3" "$2"
     log "session rc=$rc (unclassified failure); see stderr head:"; head -c 200 "$err" >>"$LOG"
   fi
   head -c 200 "$out" >>"$LOG"; echo >>"$LOG"
