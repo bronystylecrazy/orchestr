@@ -128,6 +128,8 @@ except Exception: print('')")
       _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:mechanical $_f"; return 0; } ;;
     standard)
       _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review:light $_f"; return 0; }
+      # review floor declared by the maintainer: standard seat may take this frontier review
+      _f=$(glab mr list --label review:frontier --label review-floor -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review:frontier-floor $_f"; return 0; }
       _f=$(glab issue list --label ready-for-agent --label tier:standard -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:standard $_f"; return 0; }
       # aged mechanical (seat economy: >24h unclaimed)
       _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned "" 86400) && { echo "impl:mechanical-aged $_f"; return 0; } ;;
