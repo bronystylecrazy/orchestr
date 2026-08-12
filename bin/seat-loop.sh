@@ -73,48 +73,57 @@ log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG"; }
 # --- gate: does this tier have work in this project dir? (pre-filter only —
 # false positives cost one session; a MISSING queue here means the seat never
 # wakes for that work. glab quirk: mr list wants -F json, issue list wants -O json.)
-pick() {  # stdin: issue/MR list JSON. $1 sigil (# or !), $2 mode, $3 arg.
+pick() {  # stdin: issue/MR list JSON. $1 sigil (# or !), $2 mode, $3 arg, $4 min-age-seconds.
           # prints "<sigil><iid> <title>" for the first match and exits 0; else exits 1.
+          # Filters MUST mirror the skill's eligibility rules — a gate that wakes on work
+          # the session will refuse burns a full session per tick, forever.
   python3 -c '
 import json, sys, datetime
 sigil, mode = sys.argv[1], sys.argv[2]
 arg = sys.argv[3] if len(sys.argv) > 3 else ""
+minage = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else 0
 now = datetime.datetime.now(datetime.timezone.utc)
 try: items = json.load(sys.stdin)
 except Exception: sys.exit(1)
-def age(i):
-    return (now - datetime.datetime.fromisoformat(i["created_at"].replace("Z", "+00:00"))).total_seconds()
+if not isinstance(items, list): sys.exit(1)
 for i in items:
+    if not isinstance(i, dict): continue
+    if minage:
+        age = (now - datetime.datetime.fromisoformat(i["created_at"].replace("Z", "+00:00"))).total_seconds()
+        if age < minage: continue
     if mode == "unassigned" and i.get("assignees"): continue
-    if mode == "uaged" and (i.get("assignees") or age(i) < float(arg)): continue
-    if mode == "aged" and age(i) < float(arg): continue
     if mode == "author" and (i.get("author") or {}).get("username") != arg: continue
     if mode == "notlabel" and arg in (i.get("labels") or []): continue
+    if mode == "reviewable":
+        if (i.get("author") or {}).get("username") == arg: continue           # never your own bot user
+        if "changes-requested" in (i.get("labels") or []): continue           # sitting with its author
+        revs = [(r.get("username") if isinstance(r, dict) else r) for r in (i.get("reviewers") or [])]
+        if revs and arg not in revs: continue                                 # claimed or directed elsewhere
     print(sigil + str(i["iid"]) + " " + (i.get("title") or "")[:58])
     sys.exit(0)
-sys.exit(1)' "$1" "$2" "${3:-}"
+sys.exit(1)' "$1" "$2" "${3:-}" "${4:-}"
 }
 
 has_work() {  # echoes "<queue> <ref> <title>" when work exists (empty output = idle)
   _f=$(glab mr list --label changes-requested -F json 2>/dev/null | pick '!' author "$BOT") && { echo "rework $_f"; return 0; }
   # directed work: human assigned this bot (label still on = not yet claimed)
   _f=$(glab issue list --assignee "$BOT" --label ready-for-agent -O json 2>/dev/null | pick '#' any) && { echo "directed $_f"; return 0; }
-  _f=$(glab api "projects/:id/merge_requests?state=opened&reviewer_username=$BOT" 2>/dev/null | pick '!' notlabel changes-requested) && { echo "directed-review $_f"; return 0; }
+  _f=$(glab api "projects/:id/merge_requests?state=opened&reviewer_username=$BOT" 2>/dev/null | pick '!' reviewable "$BOT") && { echo "directed-review $_f"; return 0; }
   [ "$DIRECTED" -eq 1 ] && return 1   # directed-only seats never wake for pull queues
   case "$TIER" in
     mechanical)
       _f=$(glab issue list --label needs-peer-check -O json 2>/dev/null | pick '#' unassigned) && { echo "peer-check $_f"; return 0; }
       _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:mechanical $_f"; return 0; } ;;
     standard)
-      _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' any) && { echo "review:light $_f"; return 0; }
+      _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review:light $_f"; return 0; }
       _f=$(glab issue list --label ready-for-agent --label tier:standard -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:standard $_f"; return 0; }
       # aged mechanical (seat economy: >24h unclaimed)
-      _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' uaged 86400) && { echo "impl:mechanical-aged $_f"; return 0; } ;;
+      _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned "" 86400) && { echo "impl:mechanical-aged $_f"; return 0; } ;;
     frontier)
-      _f=$(glab mr list --label review:frontier -F json 2>/dev/null | pick '!' any) && { echo "review:frontier $_f"; return 0; }
+      _f=$(glab mr list --label review:frontier -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review:frontier $_f"; return 0; }
       # review:light only when aged >4h (seat economy — fresh light reviews are standard's)
-      _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' aged 14400) && { echo "review:light-aged $_f"; return 0; }
-      _f=$(glab mr list --merged --label needs-frontier-review -F json 2>/dev/null | pick '!' any) && { echo "review-debt $_f"; return 0; }
+      _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' reviewable "$BOT" 14400) && { echo "review:light-aged $_f"; return 0; }
+      _f=$(glab mr list --merged --label needs-frontier-review -F json 2>/dev/null | pick '!' reviewable "$BOT") && { echo "review-debt $_f"; return 0; }
       _f=$(glab issue list --label needs-triage -O json 2>/dev/null | pick '#' any) && { echo "triage $_f"; return 0; }
       _f=$(glab issue list --label ready-for-agent --label tier:frontier -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:frontier $_f"; return 0; } ;;
   esac
