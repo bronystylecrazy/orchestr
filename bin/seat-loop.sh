@@ -80,6 +80,13 @@ sys.exit(0 if any(not i.get("assignees") for i in d) else 1)'
 has_work() {
   _mine=$(glab mr list --label changes-requested -F json 2>/dev/null | grep -c "\"username\":\"$BOT\"") || _mine=0
   [ "$_mine" -gt 0 ] && return 0
+  # directed work: human assigned this bot (label still on = not yet claimed)
+  nonempty "$(glab issue list --assignee "$BOT" --label ready-for-agent -O json 2>/dev/null)" && return 0
+  glab api "projects/:id/merge_requests?state=opened&reviewer_username=$BOT" 2>/dev/null | python3 -c "
+import json,sys
+try: mrs=json.load(sys.stdin)
+except Exception: sys.exit(1)
+sys.exit(0 if any('changes-requested' not in m.get('labels',[]) for m in mrs) else 1)" && return 0
   case "$TIER" in
     mechanical)
       glab issue list --label needs-peer-check -O json 2>/dev/null | unassigned && return 0

@@ -19,6 +19,7 @@ Every seat checks queue 0 first. Then standard and frontier seats continue at
 queue 1; mechanical seats skip to queue 4.
 
 0. **(all seats) Rework — your own MRs come before any new work** — `glab mr list --label changes-requested -F json`, keep only MRs authored by your bot user; skip any whose comments hold a `rework-claim:` from another instance less than 24 hours old. Claim yours first — `glab mr note <iid> --message "rework-claim: $INSTANCE $(date -u +%FT%TZ)"`, re-read, back off if an earlier fresh claim from another instance exists (sibling instances share your bot user — the claim, not authorship, decides whose rework this is). Then: fresh worktree from the remote branch (`git worktree add <path> origin/<branch>`), address every **`(blocking)`** finding (reply to each; non-blocking findings are yours to take or decline — reply either way), push, remove the label (`glab mr update <iid> --unlabel changes-requested`) to hand it back to the review queue, remove the worktree, and clock it — `glab mr note <iid> --message "/spend <minutes>m"` as its own note, minutes since your rework-claim. That completes this invocation.
+0.5. **(all seats) Directed work — a human delegated something to you by name.** Issues: `glab issue list --assignee <your-bot-user> --label ready-for-agent -O json` — assigned to you but not yet claimed means delegated; claim it normally and work it, **regardless of tier cap or seat economy** (the maintainer outranks every rule). MRs: any open MR whose reviewer field names your bot user without your `review-claim:` comment is a directed review → `REVIEWING.md`. Conversely, skip MRs whose reviewer field names a *different* bot with no claim yet — they are directed elsewhere.
 1. **(frontier and standard seats) Reviews** — `glab mr list --label review:frontier -F json` then `--label review:light`. Skip any MR labeled `changes-requested` (it is with its author), and any MR whose comments hold a `review-claim:` from another instance less than 24 hours old with no outcome yet. The first survivor IS your work item — read `REVIEWING.md` beside this skill and follow it. Only an empty result moves you to the next queue; the MR's author, age, or subject never disqualify it. A standard seat takes `review:frontier` MRs only under the review-floor rule in `model-routing.md`. Seat economy, mirrored: a frontier seat takes a `review:light` MR only when it has sat unclaimed for over 4 hours — fresh light reviews belong to standard seats.
 2. **(frontier seats) Review debt** — `glab mr list --merged --label needs-frontier-review -F json`. Found one → `REVIEWING.md`.
 3. **(frontier seats) Triage** — `glab issue list --label needs-triage -O json`. Fresh issues → invoke orchestr:route on each; tickets holding a completed, peer-confirmed report → spot-check it, make the decision it feeds, and close. Then restart at queue 1.
@@ -46,9 +47,11 @@ INSTANCE="<your-bot-user>/i-$(openssl rand -hex 2)"   # e.g. bot-minimax/i-9f3c
 ```
 
 ```bash
-glab issue update <n> --assignee @me
+glab issue update <n> --assignee @me --unlabel ready-for-agent
 glab issue note <n> --message "claim: $INSTANCE $(date -u +%FT%TZ)"
 ```
+
+(Removing `ready-for-agent` at claim is load-bearing: assigned **with** the label = delegated-awaiting-pickup; assigned **without** it = in-flight claim. Re-add the label if you back off.)
 
 Re-read `glab issue view <n> --comments`. If a claim comment with any instance id other than yours predates yours, the ticket is theirs — comment "backing off — claimed first by <their instance id>" and return to step 2. When the earlier claim is a **different bot user**, also `glab issue update <n> --unassignee @me`; when it is another instance of **your own bot user**, leave the assignee in place — it is theirs as much as yours, and unassigning would strip the winner's claim.
 
@@ -66,7 +69,7 @@ Abandoned claims: a claimed ticket whose newest note is over 24 hours old is a d
 ## 5. Hand off
 
 - Report-only tickets (the brief's deliverable is a comment, no MR): post the report, then hand off by label — mechanical seats swap `ready-for-agent` → `needs-peer-check` (a different-model seat verifies before triage consumes it); standard and frontier seats swap `ready-for-agent` → `needs-triage`. Unassign yourself and stop — closing is triage's call, never yours.
-- Open an MR with `Closes #<n>`, copy the issue's `review:*` label onto the MR (that label is what puts it in a reviewer's queue 1), and remove `ready-for-agent` from the issue — it is no longer claimable work; the MR carries it from here.
+- Open an MR with `Closes #<n>` and copy the issue's `review:*` label onto the MR — that label is what puts it in a reviewer's queue 1.
 - Post the report comment on the MR (required shape — the **Not verified** section is mandatory; unverifiable criteria surfaced here are how humans catch what agents cannot):
 
 ```markdown
