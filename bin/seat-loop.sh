@@ -163,14 +163,15 @@ print(json.dumps({
     "is_error": d.get("is_error", True),
     "result_head": (d.get("result") or "")[:160]}))
 PY
-  # over-limit detection -> cool this profile down until the stated reset (fallback 1h)
-  if grep -qiE "usage limit|rate limit|over.{0,10}limit" "$out" "$err" 2>/dev/null || [ $rc -ne 0 ]; then
-    if grep -qiE "limit" "$out" "$err" 2>/dev/null; then
-      echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
-      log "profile $1 over limit -> cooling 1h (rc=$rc)"
-    else
-      log "session rc=$rc (not limit-shaped); see $err"
-    fi
+  # failure detection -> cool this profile so the next tick fails over
+  if grep -qiE "oauth|authenticate|please run /login|login required" "$out" "$err" 2>/dev/null; then
+    echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
+    log "profile $1 AUTH FAILURE -> cooling 1h, failing over. Fix: CLAUDE_CONFIG_DIR=\$HOME/.local/share/claude-profiles/$1 claude   (then /login)"
+  elif grep -qiE "usage limit|rate limit|over.{0,10}limit" "$out" "$err" 2>/dev/null; then
+    echo $(( $(date +%s) + 3600 )) > "$CFG/cooldown/$1"
+    log "profile $1 over limit -> cooling 1h (rc=$rc)"
+  elif [ $rc -ne 0 ]; then
+    log "session rc=$rc (unclassified failure); see stderr head:"; head -c 200 "$err" >>"$LOG"
   fi
   head -c 200 "$out" >>"$LOG"; echo >>"$LOG"
   rm -f "$out" "$err"
