@@ -73,57 +73,50 @@ log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$LOG"; }
 # --- gate: does this tier have work in this project dir? (pre-filter only —
 # false positives cost one session; a MISSING queue here means the seat never
 # wakes for that work. glab quirk: mr list wants -F json, issue list wants -O json.)
-nonempty() { [ "$(printf %s "$1" | head -c 3)" != "[]" ] && [ -n "$1" ]; }
-unassigned() {  # stdin: issue-list JSON; true if any issue has no assignee
-  python3 -c 'import json,sys
-try: d=json.load(sys.stdin)
+pick() {  # stdin: issue/MR list JSON. $1 sigil (# or !), $2 mode, $3 arg.
+          # prints "<sigil><iid> <title>" for the first match and exits 0; else exits 1.
+  python3 -c '
+import json, sys, datetime
+sigil, mode = sys.argv[1], sys.argv[2]
+arg = sys.argv[3] if len(sys.argv) > 3 else ""
+now = datetime.datetime.now(datetime.timezone.utc)
+try: items = json.load(sys.stdin)
 except Exception: sys.exit(1)
-sys.exit(0 if any(not i.get("assignees") for i in d) else 1)'
+def age(i):
+    return (now - datetime.datetime.fromisoformat(i["created_at"].replace("Z", "+00:00"))).total_seconds()
+for i in items:
+    if mode == "unassigned" and i.get("assignees"): continue
+    if mode == "uaged" and (i.get("assignees") or age(i) < float(arg)): continue
+    if mode == "aged" and age(i) < float(arg): continue
+    if mode == "author" and (i.get("author") or {}).get("username") != arg: continue
+    if mode == "notlabel" and arg in (i.get("labels") or []): continue
+    print(sigil + str(i["iid"]) + " " + (i.get("title") or "")[:58])
+    sys.exit(0)
+sys.exit(1)' "$1" "$2" "${3:-}"
 }
-has_work() {
-  _mine=$(glab mr list --label changes-requested -F json 2>/dev/null | grep -c "\"username\":\"$BOT\"") || _mine=0
-  [ "$_mine" -gt 0 ] && return 0
+
+has_work() {  # echoes "<queue> <ref> <title>" when work exists (empty output = idle)
+  _f=$(glab mr list --label changes-requested -F json 2>/dev/null | pick '!' author "$BOT") && { echo "rework $_f"; return 0; }
   # directed work: human assigned this bot (label still on = not yet claimed)
-  nonempty "$(glab issue list --assignee "$BOT" --label ready-for-agent -O json 2>/dev/null)" && return 0
-  glab api "projects/:id/merge_requests?state=opened&reviewer_username=$BOT" 2>/dev/null | python3 -c "
-import json,sys
-try: mrs=json.load(sys.stdin)
-except Exception: sys.exit(1)
-sys.exit(0 if any('changes-requested' not in m.get('labels',[]) for m in mrs) else 1)" && return 0
+  _f=$(glab issue list --assignee "$BOT" --label ready-for-agent -O json 2>/dev/null | pick '#' any) && { echo "directed $_f"; return 0; }
+  _f=$(glab api "projects/:id/merge_requests?state=opened&reviewer_username=$BOT" 2>/dev/null | pick '!' notlabel changes-requested) && { echo "directed-review $_f"; return 0; }
   [ "$DIRECTED" -eq 1 ] && return 1   # directed-only seats never wake for pull queues
   case "$TIER" in
     mechanical)
-      glab issue list --label needs-peer-check -O json 2>/dev/null | unassigned && return 0
-      glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | unassigned && return 0 ;;
+      _f=$(glab issue list --label needs-peer-check -O json 2>/dev/null | pick '#' unassigned) && { echo "peer-check $_f"; return 0; }
+      _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:mechanical $_f"; return 0; } ;;
     standard)
-      nonempty "$(glab mr list --label review:light -F json 2>/dev/null)" && return 0
-      glab issue list --label ready-for-agent --label tier:standard -O json 2>/dev/null | unassigned && return 0
+      _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' any) && { echo "review:light $_f"; return 0; }
+      _f=$(glab issue list --label ready-for-agent --label tier:standard -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:standard $_f"; return 0; }
       # aged mechanical (seat economy: >24h unclaimed)
-      glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | python3 -c "
-import json,sys,datetime
-now=datetime.datetime.now(datetime.timezone.utc)
-try: issues=json.load(sys.stdin)
-except Exception: sys.exit(1)
-for i in issues:
-    if i.get('assignees'): continue
-    age=(now-datetime.datetime.fromisoformat(i['created_at'].replace('Z','+00:00'))).total_seconds()
-    if age>86400: sys.exit(0)
-sys.exit(1)" && return 0 ;;
+      _f=$(glab issue list --label ready-for-agent --label tier:mechanical -O json 2>/dev/null | pick '#' uaged 86400) && { echo "impl:mechanical-aged $_f"; return 0; } ;;
     frontier)
-      nonempty "$(glab mr list --label review:frontier -F json 2>/dev/null)" && return 0
+      _f=$(glab mr list --label review:frontier -F json 2>/dev/null | pick '!' any) && { echo "review:frontier $_f"; return 0; }
       # review:light only when aged >4h (seat economy — fresh light reviews are standard's)
-      glab mr list --label review:light -F json 2>/dev/null | python3 -c "
-import json,sys,datetime
-now=datetime.datetime.now(datetime.timezone.utc)
-try: mrs=json.load(sys.stdin)
-except Exception: sys.exit(1)
-for m in mrs:
-    age=(now-datetime.datetime.fromisoformat(m['created_at'].replace('Z','+00:00'))).total_seconds()
-    if age>14400: sys.exit(0)
-sys.exit(1)" && return 0
-      nonempty "$(glab mr list --merged --label needs-frontier-review -F json 2>/dev/null)" && return 0
-      nonempty "$(glab issue list --label needs-triage -O json 2>/dev/null)" && return 0
-      glab issue list --label ready-for-agent --label tier:frontier -O json 2>/dev/null | unassigned && return 0 ;;
+      _f=$(glab mr list --label review:light -F json 2>/dev/null | pick '!' aged 14400) && { echo "review:light-aged $_f"; return 0; }
+      _f=$(glab mr list --merged --label needs-frontier-review -F json 2>/dev/null | pick '!' any) && { echo "review-debt $_f"; return 0; }
+      _f=$(glab issue list --label needs-triage -O json 2>/dev/null | pick '#' any) && { echo "triage $_f"; return 0; }
+      _f=$(glab issue list --label ready-for-agent --label tier:frontier -O json 2>/dev/null | pick '#' unassigned) && { echo "impl:frontier $_f"; return 0; } ;;
   esac
   return 1
 }
@@ -147,7 +140,7 @@ pick_profile() {  # first profile not cooling down
   return 1
 }
 
-run_session() {  # $1=profile $2=project-dir
+run_session() {  # $1=profile $2=project-dir $3=detected-work description
   out=$(mktemp); err=$(mktemp)
   if [ "$WATCH" -eq 1 ]; then
     ( cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
@@ -158,7 +151,7 @@ run_session() {  # $1=profile $2=project-dir
         claude -p "$PROMPT" --output-format json $DANGEROUS ${MODEL:+--model "$MODEL"} >"$out" 2>"$err" )
   fi
   rc=$?
-  python3 - "$out" "$1" "$BOT" "$2" >>"$CFG/ledger/$1.jsonl" <<'PY'
+  python3 - "$out" "$1" "$BOT" "$2" "$3" >>"$CFG/ledger/$1.jsonl" <<'PY'
 import json, sys, datetime
 try:
     d = json.load(open(sys.argv[1]))
@@ -168,6 +161,7 @@ u = d.get("usage") or {}
 print(json.dumps({
     "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
     "profile": sys.argv[2], "bot": sys.argv[3], "project": sys.argv[4],
+    "work": sys.argv[5] if len(sys.argv) > 5 else None,
     "cost_usd": d.get("total_cost_usd"), "in": u.get("input_tokens"),
     "out": u.get("output_tokens"), "cache_read": u.get("cache_read_input_tokens"),
     "turns": d.get("num_turns"), "dur_ms": d.get("duration_ms"),
@@ -199,11 +193,12 @@ while :; do
   while IFS= read -r proj; do
     [ -d "$proj" ] || continue
     if [ "$full" -eq 0 ] && ! fresh_events "$proj"; then continue; fi
-    if ( cd "$proj" && has_work ); then
+    found=$(cd "$proj" && has_work)
+    if [ -n "$found" ]; then
       for _try in $PROFILES; do
         prof=$(pick_profile) || { log "all profiles cooling; skipping tick"; break; }
-        log "work detected in $proj -> session as $BOT via profile $prof"
-        run_session "$prof" "$proj"
+        log "work: [$found] in $(basename "$proj") -> session as $BOT via profile $prof"
+        run_session "$prof" "$proj" "$found"
         worked=1
         # profile just got cooled by that session (auth/limit)? fail over NOW
         _until=$(cat "$CFG/cooldown/$prof" 2>/dev/null || echo 0)
