@@ -24,9 +24,10 @@
 set -u
 CFG="$HOME/.config/orchestr"
 PROFILES=$(echo "${1:?profile}" | tr ',' ' '); BOT="${2:?bot-user}"; TIER="${3:?tier}"; shift 3
-ONCE=0; INTERVAL=60; DANGEROUS=""
+ONCE=0; INTERVAL=60; DANGEROUS=""; MODEL=""
 while [ $# -gt 0 ]; do case "$1" in
   --once) ONCE=1 ;; --interval) INTERVAL="$2"; shift ;;
+  --model) MODEL="$2"; shift ;;
   --dangerous) DANGEROUS="--dangerously-skip-permissions" ;;
 esac; shift; done
 
@@ -86,7 +87,7 @@ pick_profile() {  # first profile not cooling down
 run_session() {  # $1=profile $2=project-dir
   out=$(mktemp); err=$(mktemp)
   ( cd "$2" && CLAUDE_CONFIG_DIR="$HOME/.local/share/claude-profiles/$1" \
-      claude -p "/orchestr:next-ticket" --output-format json $DANGEROUS >"$out" 2>"$err" )
+      claude -p "/orchestr:next-ticket" --output-format json $DANGEROUS ${MODEL:+--model "$MODEL"} >"$out" 2>"$err" )
   rc=$?
   python3 - "$out" "$1" "$BOT" "$2" >>"$CFG/ledger/$1.jsonl" <<'PY'
 import json, sys, datetime
