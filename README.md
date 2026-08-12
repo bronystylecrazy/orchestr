@@ -119,6 +119,17 @@ GitLab users. Each session generates a random instance id at startup
 instance ids, so same-account sessions never collide. Permissions, tier cap,
 and assignee attribution stay at the bot-user (model) level.
 
+The flow is per-seat; instances multiply its concurrency:
+
+- **Rework is seat-owned** — queue 0 matches MRs authored by the bot user,
+  so any sibling instance can take over a `changes-requested` MR; a crashed
+  instance never strands its work (the branch and findings live on the MR).
+- **Peer-check does not scale with producer instances** — siblings can't
+  check each other; scale the *checker* seat with the producers' output.
+- **N instances pay off only when the seat's queues sustain ≥N items**;
+  producers scale with triage floods, checkers with producer volume,
+  reviewers rarely past one or two.
+
 ## Shared clone (multiple seats, one machine, one directory)
 
 Seats may share a single repo clone: queries and doc reads run from it
