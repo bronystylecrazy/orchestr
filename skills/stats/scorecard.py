@@ -6,6 +6,7 @@ Usage: python3 scorecard.py [--days 7]
 """
 import argparse
 import json
+import re
 import statistics
 import subprocess
 import sys
@@ -102,6 +103,8 @@ def main():
 
     rework = defaultdict(list)         # changes-requested rounds per MR author
     merges = defaultdict(int)          # verified merges per reviewer seat
+    spend_re = re.compile(r"(added|subtracted) (.+?) of time spent")
+    dur_re = re.compile(r"(\d+)([dhm])")
     for m in mrs:
         author = seat_of(m["author"]["username"])
         events = api(f"projects/:id/merge_requests/{m['iid']}/resource_label_events?per_page=100") or []
@@ -110,6 +113,16 @@ def main():
         rework[author].append(rounds)
         if m["state"] == "merged" and m.get("merge_user"):
             merges[seat_of(m["merge_user"]["username"])] += 1
+        # MR time: /spend quick-actions leave system notes — attribute per note author
+        for n in (api(f"projects/:id/merge_requests/{m['iid']}/notes?per_page=100") or []):
+            if not n.get("system"):
+                continue
+            sm = spend_re.match(n["body"])
+            if not sm:
+                continue
+            secs = sum(int(v) * {"d": 28800, "h": 3600, "m": 60}[u]
+                       for v, u in dur_re.findall(sm.group(2)))
+            spent[seat_of(n["author"]["username"])] += secs if sm.group(1) == "added" else -secs
 
     seats = sorted(set(list(done) + list(rework) + list(confirmed) + list(refuted)
                        + list(merges) + list(checks_done)))
