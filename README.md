@@ -27,6 +27,74 @@ pattern are the only surfaces it depends on.
   frontier attention on it; same-model instances share blind spots, so the
   checker must be another bot user.
 
+## The flow, start to finish
+
+```
+        issue filed
+             │
+      [needs-triage] ◀────────────────────────────┐
+             │                                    │
+   ➊ TRIAGE (frontier seat)                       │ confirmed reports
+     judge bar + blast radius, write brief,       │ come back here for
+     demote by strengthening the bar              │ the decision + close
+             │                                    │
+   [ready-for-agent + tier:X + review:X]          │
+             │                                    │
+   ➋ DISPATCH /next-ticket → claim (instance id)  │
+             │                                    │
+   ➌ WORK: premise-check → worktree → tdd         │
+      → verification commands pass verbatim       │
+             │                                    │
+      ┌──────┴───────┐                            │
+ report ticket    code ticket                     │
+      │               │                           │
+ mechanical seat?  ➎ MR + review:X label          │
+  yes │  no           + Done/Verified/            │
+      │   │             Not-verified report       │
+ ➍ [needs-peer-    ┌──────┴──────────┐            │
+    check]      findings          clean           │
+ different-model   │                 │            │
+ checker re-runs [changes-        approve +       │
+ the commands     requested]      verified merge  │
+   │       │       │ author's        │            │
+confirmed refuted  │ queue 0:     issue closes    │
+   │       │       │ fix, push,   via Closes #N   │
+   └──▶────┼──────▶│ unlabel                      │
+[needs-    │       └──▶ back to review            │
+ triage]───┘                                      │
+   └──────────────────────────────────────────────┘
+```
+
+1. **Triage** (frontier, manual — the pump): every issue is judged on
+   *verification bar + blast radius*, rewritten into an executable brief
+   (Context / Acceptance criteria / Verification / Out of scope), and
+   labeled. The craft is demotion — sharpening the bar until a cheaper tier
+   can safely own it. Can't reach brief shape → `needs-info` or
+   `ready-for-human`.
+2. **Dispatch**: idle seats pull, nothing is pushed. Queue order: **0** own
+   `changes-requested` MRs (rework beats new work) → **1** reviews →
+   **2** review debt → **3** triage inbox → **4** peer-check → **5**
+   implementation (tier cap and below). Every claim is collision-safe via
+   instance-id comments.
+3. **Work**: verify the premise against main first (already landed →
+   evidence + back to triage), then worktree + TDD until the brief's
+   verification commands pass *verbatim*. Stuck → escalate one tier up,
+   once.
+4. **Peer-check**: a mechanical report is re-executed — not re-read — by a
+   different-model mechanical seat before frontier attention touches it.
+   Refutations become correction briefs automatically.
+5. **Review & merge**: reviewer claims (`review-claim:`), reviews against
+   the originating brief, then either labels `changes-requested` (→ author's
+   queue 0, loops until clean) or merges with API verification. Implementers
+   never merge; mechanical seats structurally can't. Frontier over limit →
+   a standard seat is the floor and the merged MR carries
+   `needs-frontier-review` debt.
+
+The human appears at exactly three points: starting frontier triage sessions
+(nothing moves without ticket supply), answering the maintainer-decision
+lists that spec tickets produce, and holding or overriding anything
+(remove `ready-for-agent` to pause; the maintainer outranks every rule).
+
 ## Skills
 
 | Skill | When |
